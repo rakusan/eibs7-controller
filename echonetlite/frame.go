@@ -67,11 +67,11 @@ type Frame struct {
 // ESV constants
 const (
 	// Requests
-	ESVSetI_SNA ESV = 0x60 // Property value write request (no response required)
-	ESVSetC_SNA ESV = 0x61 // Property value write request (response required)
-	ESVGet_SNA  ESV = 0x62 // Property value read request (response required)
-	ESVInfReq   ESV = 0x63 // Property value notification request
-	ESVSetGet   ESV = 0x6E // Property value write & read request
+	ESVSetI   ESV = 0x60 // Property value write request (no response required) / SetI
+	ESVSetC   ESV = 0x61 // Property value write request (response required) / SetC
+	ESVGet    ESV = 0x62 // Property value read request (response required) / Get
+	ESVInfReq ESV = 0x63 // Property value notification request / INF_REQ
+	ESVSetGet ESV = 0x6E // Property value write & read request / SetGet
 
 	// Responses / Notifications
 	ESVSet_Res    ESV = 0x71 // Property value write response
@@ -79,14 +79,14 @@ const (
 	ESVInf        ESV = 0x73 // Property value notification
 	ESVInfC       ESV = 0x74 // Property value notification (response required)
 	ESVSetGet_Res ESV = 0x7E // Property value write & read response
-	ESVInf_SNA    ESV = 0x7A // Property value notification response required
+	ESVInfC_Res   ESV = 0x7A // Property value notification response (response to INFC) / INFC_Res
 
 	// Error Responses
-	ESVSetI_SNA_Err   ESV = 0x50 // Property value write request error (no response required)
-	ESVSetC_SNA_Err   ESV = 0x51 // Property value write request error (response required)
-	ESVGet_SNA_Err    ESV = 0x52 // Property value read request error
-	ESVInf_SNA_Err    ESV = 0x53 // Property value notification request error
-	ESVSetGet_SNA_Err ESV = 0x5E // Property value write & read request error
+	ESVSetI_SNA   ESV = 0x50 // Error response to SetI (Property value write request, no response required)
+	ESVSetC_SNA   ESV = 0x51 // Error response to SetC (Property value write request, response required)
+	ESVGet_SNA    ESV = 0x52 // Error response to Get (Property value read request)
+	ESVInf_SNA    ESV = 0x53 // Error response to INF_REQ (Property value notification request) / INF_SNA
+	ESVSetGet_SNA ESV = 0x5E // Error response to SetGet (Property value write & read request)
 )
 
 // MarshalBinary は Frame 構造体を ECHONET Lite フレームのバイト列にシリアライズします。
@@ -199,7 +199,7 @@ func main() {
 		TID:  1,               // Transaction ID 1
 		SEOJ: NewEOJ(0x05, 0xFF, 0x01), // Controller object
 		DEOJ: NewEOJ(0x02, 0x7D, 0x01), // Storage Battery object
-		ESV:  ESVGet_SNA,      // 0x62 (Get)
+		ESV:  ESVGet,          // 0x62 (Get)
 		OPC:  1,               // 1 property
 		Properties: []Property{
 			{EPC: 0xE4, PDC: 0x00, EDT: nil}, // EPC: Remaining capacity 3, PDC: 0 (no data for Get)
