@@ -148,7 +148,11 @@ func main() {
 
 		// --- 送信するフレームを作成 ---
 		targetDeviceEOJ := echonetlite.NewEOJ(0x02, 0x7D, 0x01) // 蓄電池クラス
-		propertyEPC := byte(0xE4)                               // 蓄電残量3
+		propertyEPC_RemainingCapacity := byte(0xE4)             // 蓄電残量3
+		propertyEPC_OperatingMode := byte(0xDA)                 // 運転モード設定
+		propertyEPC_ChargingPowerSetting := byte(0xEB)          // 充電電力設定値
+		propertyEPC_InstChargeDischargePower := byte(0xD3)      // 瞬時充放電電力計測値
+		propertyEPC_ACEffectiveCapacity := byte(0xA0)           // AC実効容量（充電）
 		tid := getNextTID()
 
 		getFrame := echonetlite.Frame{
@@ -157,11 +161,31 @@ func main() {
 			TID:  tid,
 			SEOJ: controllerEOJ,
 			DEOJ: targetDeviceEOJ,
-			ESV:  echonetlite.ESVGet_SNA, // ESVGet (0x62) を使用すべきですが、現状のコードに合わせています。
-			OPC:  1,
+			ESV:  echonetlite.ESVGet, // Property value read request (response required)
+			OPC:  5,                  // 要求するプロパティ数を5に更新
 			Properties: []echonetlite.Property{
 				{
-					EPC: propertyEPC,
+					EPC: propertyEPC_RemainingCapacity,
+					PDC: 0,
+					EDT: nil,
+				},
+				{
+					EPC: propertyEPC_OperatingMode,
+					PDC: 0,
+					EDT: nil,
+				},
+				{
+					EPC: propertyEPC_ChargingPowerSetting,
+					PDC: 0,
+					EDT: nil,
+				},
+				{
+					EPC: propertyEPC_InstChargeDischargePower,
+					PDC: 0,
+					EDT: nil,
+				},
+				{
+					EPC: propertyEPC_ACEffectiveCapacity,
 					PDC: 0,
 					EDT: nil,
 				},
