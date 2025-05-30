@@ -123,6 +123,13 @@ func sendAndReceiveEchonetLiteFrame(targetIP string, frame echonetlite.Frame, ti
 	return buffer[:bytesRead], addr, nil
 }
 
+// MonitoringTarget は、監視対象のECHONET Liteオブジェクトと取得するプロパティのリストを定義します。
+type MonitoringTarget struct {
+	EOJ        echonetlite.EOJ
+	EPCs       []byte
+	ObjectName string // ログ出力用のオブジェクト名
+}
+
 func main() {
 	// --- 設定ファイルの読み込み ---
 	cfg, err := loadConfig(configFileName)
@@ -135,83 +142,87 @@ func main() {
 	targetIP := cfg.TargetIP // 設定ファイルから読み込んだIPアドレスを使用
 	responseTimeout := 5 * time.Second
 
+	// --- 監視対象の定義 ---
+	// README_prototype.md および以前の指示に基づく
+	targets := []MonitoringTarget{
+		{
+			EOJ:        echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
+			EPCs:       []byte{0xE4, 0xDA, 0xEB, 0xD3, 0xA0}, // 蓄電残量3, 運転モード, 充電電力設定値, 瞬時充放電電力, AC実効容量
+			ObjectName: "蓄電池 (027D01)",
+		},
+		{
+			EOJ:        echonetlite.NewEOJ(0x02, 0x79, 0x01), // 住宅用太陽光発電
+			EPCs:       []byte{0xE0},                         // 瞬時発電電力計測値
+			ObjectName: "住宅用太陽光発電 (027901)",
+		},
+		{
+			EOJ:        echonetlite.NewEOJ(0x02, 0x87, 0x01), // 分電盤メータリング
+			EPCs:       []byte{0xC6},                         // 瞬時電力計測値
+			ObjectName: "分電盤メータリング (028701)",
+		},
+		{
+			EOJ:        echonetlite.NewEOJ(0x02, 0xA5, 0x01), // マルチ入力PCS
+			EPCs:       []byte{0xE7},                         // 瞬時電力計測値
+			ObjectName: "マルチ入力PCS (02A501)",
+		},
+	}
+
 	// --- 定期実行のための Ticker を作成 ---
 	ticker := time.NewTicker(time.Duration(cfg.MonitorIntervalSeconds) * time.Second)
 	defer ticker.Stop()
 
 	log.Printf("監視を開始します。監視間隔: %d秒", cfg.MonitorIntervalSeconds)
 
-	// --- メインループ ---
+	// --- メインループ (監視サイクル) ---
 	for range ticker.C {
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
-		// --- 送信するフレームを作成 ---
-		targetDeviceEOJ := echonetlite.NewEOJ(0x02, 0x7D, 0x01) // 蓄電池クラス
-		propertyEPC_RemainingCapacity := byte(0xE4)             // 蓄電残量3
-		propertyEPC_OperatingMode := byte(0xDA)                 // 運転モード設定
-		propertyEPC_ChargingPowerSetting := byte(0xEB)          // 充電電力設定値
-		propertyEPC_InstChargeDischargePower := byte(0xD3)      // 瞬時充放電電力計測値
-		propertyEPC_ACEffectiveCapacity := byte(0xA0)           // AC実効容量（充電）
-		tid := getNextTID()
+		for _, target := range targets {
+			tid := getNextTID()
+			log.Printf("[%s] データ取得開始 (TID: %d)", target.ObjectName, tid)
 
-		getFrame := echonetlite.Frame{
-			EHD1: echonetlite.EchonetLiteEHD1,
-			EHD2: echonetlite.Format1,
-			TID:  tid,
-			SEOJ: controllerEOJ,
-			DEOJ: targetDeviceEOJ,
-			ESV:  echonetlite.ESVGet, // Property value read request (response required)
-			OPC:  5,                  // 要求するプロパティ数を5に更新
-			Properties: []echonetlite.Property{
-				{
-					EPC: propertyEPC_RemainingCapacity,
-					PDC: 0,
-					EDT: nil,
-				},
-				{
-					EPC: propertyEPC_OperatingMode,
-					PDC: 0,
-					EDT: nil,
-				},
-				{
-					EPC: propertyEPC_ChargingPowerSetting,
-					PDC: 0,
-					EDT: nil,
-				},
-				{
-					EPC: propertyEPC_InstChargeDischargePower,
-					PDC: 0,
-					EDT: nil,
-				},
-				{
-					EPC: propertyEPC_ACEffectiveCapacity,
-					PDC: 0,
-					EDT: nil,
-				},
-			},
-		}
-
-		// --- フレームを送信し、応答を受信 ---
-		receivedData, sourceAddr, err := sendAndReceiveEchonetLiteFrame(targetIP, getFrame, responseTimeout)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Printf("処理がタイムアウトしました (TID: %d)", tid)
-			} else {
-				log.Printf("ECHONET Lite 通信中にエラーが発生しました (TID: %d): %v", tid, err)
+			var props []echonetlite.Property
+			for _, epc := range target.EPCs {
+				props = append(props, echonetlite.Property{EPC: epc, PDC: 0, EDT: nil})
 			}
-			log.Println("監視サイクル終了 (エラー)")
-			continue // エラーが発生しても次のサイクルへ
+
+			getFrame := echonetlite.Frame{
+				EHD1:       echonetlite.EchonetLiteEHD1,
+				EHD2:       echonetlite.Format1,
+				TID:        tid,
+				SEOJ:       controllerEOJ,
+				DEOJ:       target.EOJ,
+				ESV:        echonetlite.ESVGet,
+				OPC:        byte(len(props)),
+				Properties: props,
+			}
+
+			// --- フレームを送信し、応答を受信 ---
+			receivedData, sourceAddr, err := sendAndReceiveEchonetLiteFrame(targetIP, getFrame, responseTimeout)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Printf("[%s] 処理がタイムアウトしました (TID: %d)", target.ObjectName, tid)
+				} else {
+					log.Printf("[%s] ECHONET Lite 通信中にエラーが発生しました (TID: %d): %v", target.ObjectName, tid, err)
+				}
+				continue // エラーが発生しても次のターゲットの処理へ
+			}
+
+			// --- 応答受信成功時の処理 ---
+			log.Printf("[%s] 正常に応答を受信しました (TID: %d, 送信元: %s, データ長: %d bytes)", target.ObjectName, tid, sourceAddr.String(), len(receivedData))
+
+			_ = receivedData // 将来の使用のためにエラー抑制 (デシリアライズ処理で実際に使用します)
+
+			// TODO: 受信したバイト列 (receivedData) を echonetlite.Frame にデシリアライズする処理を実装する
+			// responseFrame, err := echonetlite.UnmarshalBinary(receivedData)
+			// if err != nil {
+			//     log.Printf("[%s] 受信データのデシリアライズに失敗しました (TID: %d): %v", target.ObjectName, tid, err)
+			// } else {
+			//     // デシリアライズ成功時の処理 (TIDチェック、ESVチェック、プロパティ値の処理など)
+			//     log.Printf("[%s] 受信フレーム (TID: %d): %+v", target.ObjectName, tid, responseFrame)
+			// }
 		}
-
-		// --- 応答受信成功時の処理 ---
-		log.Printf("正常に応答を受信しました (TID: %d, 送信元: %s)", tid, sourceAddr.String())
-
-		_ = receivedData // 将来の使用のためにエラー抑制 (デシリアライズ処理で実際に使用します)
-
-		// TODO: 受信したバイト列 (receivedData) を echonetlite.Frame にデシリアライズする処理を実装する
-		// (この部分は変更なし、次のステップで実装します)
-
-		log.Println("監視サイクル終了 (正常)")
+		log.Println("監視サイクル終了 (全ターゲット処理完了)")
 	}
 }
