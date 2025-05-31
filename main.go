@@ -212,16 +212,37 @@ func main() {
 			// --- 応答受信成功時の処理 ---
 			log.Printf("[%s] 正常に応答を受信しました (TID: %d, 送信元: %s, データ長: %d bytes)", target.ObjectName, tid, sourceAddr.String(), len(receivedData))
 
-			_ = receivedData // 将来の使用のためにエラー抑制 (デシリアライズ処理で実際に使用します)
+			// 受信したバイト列 (receivedData) を echonetlite.Frame にデシリアライズする
+			var responseFrame echonetlite.Frame
+			err = responseFrame.UnmarshalBinary(receivedData)
+			if err != nil {
+				log.Printf("[%s] 受信データのデシリアライズに失敗しました (TID: %d): %v", target.ObjectName, tid, err)
+				continue // 次のターゲットへ
+			}
 
-			// TODO: 受信したバイト列 (receivedData) を echonetlite.Frame にデシリアライズする処理を実装する
-			// responseFrame, err := echonetlite.UnmarshalBinary(receivedData)
-			// if err != nil {
-			//     log.Printf("[%s] 受信データのデシリアライズに失敗しました (TID: %d): %v", target.ObjectName, tid, err)
-			// } else {
-			//     // デシリアライズ成功時の処理 (TIDチェック、ESVチェック、プロパティ値の処理など)
-			//     log.Printf("[%s] 受信フレーム (TID: %d): %+v", target.ObjectName, tid, responseFrame)
-			// }
+			// TID の一致確認
+			if responseFrame.TID != tid {
+				log.Printf("[%s] 警告: 受信したTID (%d) が送信したTID (%d) と一致しません。", target.ObjectName, responseFrame.TID, tid)
+				// TIDが不一致でも処理を続けるか、ここで中断するかは要件による
+			}
+
+			// ESV の確認
+			switch responseFrame.ESV {
+			case echonetlite.ESVGet_Res: // 0x72 - Property value read response
+				log.Printf("[%s] Get応答を受信しました (TID: %d, ESV: 0x%X)", target.ObjectName, responseFrame.TID, responseFrame.ESV)
+				if len(responseFrame.Properties) == 0 {
+					log.Printf("[%s] Get応答にプロパティが含まれていません (TID: %d)", target.ObjectName, responseFrame.TID)
+				}
+				for _, prop := range responseFrame.Properties {
+					log.Printf("[%s]   EPC: 0x%X, PDC: %d, EDT: %X (TID: %d)", target.ObjectName, prop.EPC, prop.PDC, prop.EDT, responseFrame.TID)
+					// TODO: ここで EDT を具体的なデータ型に変換し、意味のある値として解釈する処理を追加する
+				}
+			case echonetlite.ESVGet_SNA: // 0x52 - Property value read request error
+				log.Printf("[%s] Getエラー応答を受信しました (TID: %d, ESV: 0x%X)", target.ObjectName, responseFrame.TID, responseFrame.ESV)
+				// エラー応答の場合、Propertiesにエラーの原因を示す情報が含まれることがある (例: EPCが処理不可など)
+			default:
+				log.Printf("[%s] 予期しないESV (0x%X) を受信しました (TID: %d)", target.ObjectName, responseFrame.ESV, responseFrame.TID)
+			}
 		}
 		log.Println("監視サイクル終了 (全ターゲット処理完了)")
 	}

@@ -189,6 +189,120 @@ func (f *Frame) MarshalBinary() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// UnmarshalBinary は ECHONET Lite フレームのバイト列を Frame 構造体にデシリアライズします。
+// encoding.BinaryUnmarshaler インターフェースを実装します。
+func (f *Frame) UnmarshalBinary(data []byte) error {
+	// ECHONET Lite フレームの最小サイズはヘッダ(4) + EOJ(6) + ESV(1) + OPC(1) = 12 バイト
+	// (プロパティがない場合)
+	minLength := 12
+	if len(data) < minLength {
+		return fmt.Errorf("data too short for ECHONET Lite frame: got %d bytes, want at least %d", len(data), minLength)
+	}
+
+	reader := bytes.NewReader(data)
+
+	// 1. EHD1 (1 byte)
+	ehd1Byte, err := reader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read EHD1: %w", err)
+	}
+	f.EHD1 = EHD1(ehd1Byte)
+	if f.EHD1 != EchonetLiteEHD1 {
+		return fmt.Errorf("invalid EHD1: expected 0x%X, got 0x%X", EchonetLiteEHD1, f.EHD1)
+	}
+
+	// 2. EHD2 (1 byte)
+	ehd2Byte, err := reader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read EHD2: %w", err)
+	}
+	f.EHD2 = EHD2(ehd2Byte)
+	// TODO: Format2 (0x82) の場合の処理は未実装 (主に Format1 を想定)
+	if f.EHD2 != Format1 {
+		// 厳密にはエラーではないが、この実装では Format1 のみを想定
+		// fmt.Printf("Warning: EHD2 is not Format1 (0x81), got 0x%X. Parsing as Format1.\n", f.EHD2)
+	}
+
+	// 3. TID (2 bytes, Big Endian)
+	var tidVal uint16
+	if err := binary.Read(reader, binary.BigEndian, &tidVal); err != nil {
+		return fmt.Errorf("failed to read TID: %w", err)
+	}
+	f.TID = TID(tidVal)
+
+	// 4. SEOJ (3 bytes)
+	seojBytes := make([]byte, 3)
+	if _, err := reader.Read(seojBytes); err != nil {
+		return fmt.Errorf("failed to read SEOJ: %w", err)
+	}
+	f.SEOJ = NewEOJ(seojBytes[0], seojBytes[1], seojBytes[2])
+
+	// 5. DEOJ (3 bytes)
+	deojBytes := make([]byte, 3)
+	if _, err := reader.Read(deojBytes); err != nil {
+		return fmt.Errorf("failed to read DEOJ: %w", err)
+	}
+	f.DEOJ = NewEOJ(deojBytes[0], deojBytes[1], deojBytes[2])
+
+	// 6. ESV (1 byte)
+	esvByte, err := reader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read ESV: %w", err)
+	}
+	f.ESV = ESV(esvByte)
+
+	// 7. OPC (Operation Property Counter) (1 byte)
+	opcByte, err := reader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read OPC: %w", err)
+	}
+	f.OPC = opcByte
+	// TODO: ESV が SetGet (0x6E, 0x7E, 0x5E) の場合、OPCSet/OPCGet の処理が必要
+
+	// 8. Properties (Variable length)
+	f.Properties = make([]Property, 0, f.OPC)
+	for i := 0; i < int(f.OPC); i++ {
+		var prop Property
+		// 8a. EPC (Echonet Property Code) (1 byte)
+		epcByte, err := reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("failed to read EPC for property %d: %w", i, err)
+		}
+		prop.EPC = epcByte
+
+		// 8b. PDC (Property Data Counter) (1 byte)
+		pdcByte, err := reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("failed to read PDC for property %d: %w", i, err)
+		}
+		prop.PDC = pdcByte
+
+		// 8c. EDT (Property Value Data) (prop.PDC bytes)
+		if prop.PDC > 0 {
+			prop.EDT = make([]byte, prop.PDC)
+			if _, err := reader.Read(prop.EDT); err != nil {
+				return fmt.Errorf("failed to read EDT for property %d (EPC: 0x%X, PDC: %d): %w", i, prop.EPC, prop.PDC, err)
+			}
+		} else {
+			prop.EDT = nil // PDC が 0 の場合は EDT は空
+		}
+		f.Properties = append(f.Properties, prop)
+	}
+
+	// OPC で指定されたプロパティ数と実際に読み込めたプロパティ数が一致するか確認
+	if len(f.Properties) != int(f.OPC) {
+		// 通常はループ条件で担保されるが、念のため
+		return fmt.Errorf("property count mismatch: OPC specified %d, but read %d properties", f.OPC, len(f.Properties))
+	}
+
+	// すべてのデータを読み込んだ後、Readerに余分なデータがないか確認 (オプション)
+	// if reader.Len() > 0 {
+	// 	return fmt.Errorf("trailing data in frame: %d bytes remaining", reader.Len())
+	// }
+
+	return nil
+}
+
 // --- Example Usage (for testing, can be placed in a _test.go file or temporarily in main) ---
 /*
 func main() {
@@ -214,5 +328,20 @@ func main() {
 
 	fmt.Printf("Serialized data (hex): %X\n", serializedData)
 	// Expected output: 1081000105FF01027D016201E400
+
+	// Test UnmarshalBinary
+	var receivedFrame Frame
+	// Example received data (Get_Res for 蓄電残量3(E4) = 50% (0x32))
+	// 10 81 0001 027D01 05FF01 72 01 E4 01 32
+	// EHD1 EHD2 TID   DEOJ   SEOJ   ESV OPC EPC PDC EDT
+	receivedBytes := []byte{0x10, 0x81, 0x00, 0x01, 0x02, 0x7D, 0x01, 0x05, 0xFF, 0x01, 0x72, 0x01, 0xE4, 0x01, 0x32}
+	err = receivedFrame.UnmarshalBinary(receivedBytes)
+	if err != nil {
+		fmt.Println("Error unmarshaling frame:", err)
+		return
+	}
+	fmt.Printf("Unmarshaled frame: %+v\n", receivedFrame)
+	fmt.Printf("  Property 0: EPC=0x%X, PDC=%d, EDT=%X\n", receivedFrame.Properties[0].EPC, receivedFrame.Properties[0].PDC, receivedFrame.Properties[0].EDT)
+
 }
 */
