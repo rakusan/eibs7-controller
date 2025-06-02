@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -130,6 +131,66 @@ type MonitoringTarget struct {
 	ObjectName string // ログ出力用のオブジェクト名
 }
 
+// decodeEDT は、指定されたEPCに基づいてEDT（プロパティ値データ）を適切なGoの型にデコードします。
+// 対応していないEPCの場合は、元のバイト列とエラーを返します。
+func decodeEDT(epc byte, edt []byte) (interface{}, error) {
+	if edt == nil {
+		// Get要求の応答でPDC=0の場合、EDTはnilになりうる。これはエラーではない。
+		// ただし、値がないことを示すためにnilを返す。
+		return nil, nil
+	}
+	pdc := len(edt)
+
+	switch epc {
+	// 蓄電池 (027D01)
+	case 0xE4: // 蓄電残量3 (%) - unsigned char (1 byte)
+		if pdc != 1 {
+			return edt, fmt.Errorf("EPC 0xE4 (蓄電残量3) expects PDC=1, got %d", pdc)
+		}
+		return uint8(edt[0]), nil
+	case 0xDA: // 運転モード設定 - unsigned char (1 byte)
+		if pdc != 1 {
+			return edt, fmt.Errorf("EPC 0xDA (運転モード設定) expects PDC=1, got %d", pdc)
+		}
+		return uint8(edt[0]), nil // 具体的な値の意味は別途解釈 (例: 0x42 -> 充電)
+	case 0xEB: // 充電電力設定値 (W) - unsigned long (4 bytes)
+		if pdc != 4 {
+			return edt, fmt.Errorf("EPC 0xEB (充電電力設定値) expects PDC=4, got %d", pdc)
+		}
+		return binary.BigEndian.Uint32(edt), nil
+	case 0xD3: // 瞬時充放電電力計測値 (W) - signed short (2 bytes)
+		if pdc != 4 { // ユーザーの指摘に基づき signed long (4 bytes) に修正
+			return edt, fmt.Errorf("EPC 0xD3 (瞬時充放電電力計測値) expects PDC=4, got %d", pdc)
+		}
+		return int32(binary.BigEndian.Uint32(edt)), nil
+	case 0xA0: // AC実効容量（充電） (Wh) - unsigned long (4 bytes)
+		if pdc != 4 {
+			return edt, fmt.Errorf("EPC 0xA0 (AC実効容量) expects PDC=4, got %d", pdc)
+		}
+		return binary.BigEndian.Uint32(edt), nil
+	// 住宅用太陽光発電 (027901)
+	case 0xE0: // 瞬時発電電力計測値 (W) - unsigned short (2 bytes)
+		if pdc != 2 { // Appendix_Release_R_r3.pdf に基づき unsigned short (2 bytes) に修正
+			return edt, fmt.Errorf("EPC 0xE0 (瞬時発電電力計測値) expects PDC=2, got %d", pdc)
+		}
+		return binary.BigEndian.Uint16(edt), nil
+	// 分電盤メータリング (028701)
+	case 0xC6: // 瞬時電力計測値 (W) - signed long (4 bytes)
+		if pdc != 4 {
+			return edt, fmt.Errorf("EPC 0xC6 (瞬時電力計測値) expects PDC=4, got %d", pdc)
+		}
+		return int32(binary.BigEndian.Uint32(edt)), nil
+	// マルチ入力PCS (02A501)
+	case 0xE7: // 瞬時電力計測値 (W) - signed long (4 bytes)
+		if pdc != 4 { // Appendix_Release_R_r3.pdf に基づき signed long (4 bytes) に修正
+			return edt, fmt.Errorf("EPC 0xE7 (瞬時電力計測値) expects PDC=4, got %d", pdc)
+		}
+		return int32(binary.BigEndian.Uint32(edt)), nil
+	default:
+		return edt, fmt.Errorf("unknown EPC 0x%X, cannot decode EDT, returning raw bytes", epc)
+	}
+}
+
 func main() {
 	// --- 設定ファイルの読み込み ---
 	cfg, err := loadConfig(configFileName)
@@ -234,8 +295,15 @@ func main() {
 					log.Printf("[%s] Get応答にプロパティが含まれていません (TID: %d)", target.ObjectName, responseFrame.TID)
 				}
 				for _, prop := range responseFrame.Properties {
-					log.Printf("[%s]   EPC: 0x%X, PDC: %d, EDT: %X (TID: %d)", target.ObjectName, prop.EPC, prop.PDC, prop.EDT, responseFrame.TID)
-					// TODO: ここで EDT を具体的なデータ型に変換し、意味のある値として解釈する処理を追加する
+					decodedValue, err := decodeEDT(prop.EPC, prop.EDT)
+					if err != nil {
+						// デコードエラーが発生した場合でも、生データとエラー情報をログに出力
+						log.Printf("[%s]   EPC: 0x%X, PDC: %d, EDT: %X (TID: %d) - デコードエラー: %v", target.ObjectName, prop.EPC, prop.PDC, prop.EDT, responseFrame.TID, err)
+					} else if decodedValue == nil && prop.PDC == 0 { // PDC=0でEDTがnilの場合 (Get要求の正常な応答)
+						log.Printf("[%s]   EPC: 0x%X, PDC: %d, EDT: (なし) (TID: %d)", target.ObjectName, prop.EPC, prop.PDC, responseFrame.TID)
+					} else {
+						log.Printf("[%s]   EPC: 0x%X, PDC: %d, EDT: %X, 値: %v (TID: %d)", target.ObjectName, prop.EPC, prop.PDC, prop.EDT, decodedValue, responseFrame.TID)
+					}
 				}
 			case echonetlite.ESVGet_SNA: // 0x52 - Property value read request error
 				log.Printf("[%s] Getエラー応答を受信しました (TID: %d, ESV: 0x%X)", target.ObjectName, responseFrame.TID, responseFrame.ESV)
