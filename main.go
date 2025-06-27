@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
+	"log/syslog"
 	"net"
 	"os" // ファイル読み込み用に os パッケージをインポート
 	"time"
@@ -29,6 +31,31 @@ type Config struct {
 
 // 設定ファイル名
 const configFileName = "config.toml"
+
+// setupLogger は、ログの出力先を標準出力とsyslogの両方に設定します。
+func setupLogger() {
+	// syslogライターを作成
+	// 優先度は INFO、ファシリティは LOG_USER、タグは "eibs7-controller"
+	syslogWriter, err := syslog.New(syslog.LOG_INFO|syslog.LOG_USER, "eibs7-controller")
+	if err != nil {
+		// syslogに接続できない場合でも、標準出力へのログは機能するように
+		// log.Printf を使い、処理は続行する。
+		log.Printf("警告: syslogへの接続に失敗しました: %v。ログは標準出力にのみ出力されます。", err)
+		return
+	}
+
+	// 標準出力とsyslogの両方に書き込むMultiWriterを作成
+	multiWriter := io.MultiWriter(os.Stdout, syslogWriter)
+
+	// logパッケージのデフォルトロガーの出力先をMultiWriterに設定
+	// これ以降、log.Printf などで出力したものは、両方に書き込まれる
+	log.SetOutput(multiWriter)
+
+	// ログのフォーマットに日付と時刻、短いファイル名（行番号付き）を含める
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	log.Println("ロガーの設定が完了しました。標準出力とsyslogの両方に出力します。")
+}
 
 // loadConfig は設定ファイルを読み込み、Config構造体を返します。
 func loadConfig(filePath string) (*Config, error) {
@@ -242,6 +269,8 @@ func getPropertyName(deoj echonetlite.EOJ, epc byte) string {
 }
 
 func main() {
+	setupLogger() // ロガーを設定
+
 	// --- 設定ファイルの読み込み ---
 	cfg, err := loadConfig(configFileName)
 	if err != nil {
@@ -362,6 +391,61 @@ func main() {
 				log.Printf("[%s] 予期しないESV (0x%X) を受信しました (TID: %d)", target.ObjectName, responseFrame.ESV, responseFrame.TID)
 			}
 		}
+
+		// --- (オプション) 制御機能(Set)のテスト ---
+		// 蓄電池の運転モードを「自動」に設定してみる
+		setTID := getNextTID()
+		log.Printf("[制御テスト] 蓄電池の運転モードを「自動」に設定します (TID: %d)", setTID)
+
+		setFrame := echonetlite.Frame{
+			EHD1: echonetlite.EchonetLiteEHD1,
+			EHD2: echonetlite.Format1,
+			TID:  setTID,
+			SEOJ: controllerEOJ,
+			DEOJ: echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
+			ESV:  echonetlite.ESVSetC,                   // 0x61: SetC (応答要)
+			OPC:  1,
+			Properties: []echonetlite.Property{
+				{
+					EPC: 0xDA,          // 運転モード設定
+					PDC: 1,             // データ長
+					EDT: []byte{0x42}, // 0x42: 自動モード
+				},
+			},
+		}
+
+		// --- フレームを送信し、応答を受信 ---
+		receivedSetData, _, err := sendAndReceiveEchonetLiteFrame(targetIP, setFrame, responseTimeout)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Printf("[制御テスト] 処理がタイムアウトしました (TID: %d)", setTID)
+			} else {
+				log.Printf("[制御テスト] ECHONET Lite 通信中にエラーが発生しました (TID: %d): %v", setTID, err)
+			}
+		} else {
+			// --- 応答受信成功時の処理 ---
+			var responseSetFrame echonetlite.Frame
+			err = responseSetFrame.UnmarshalBinary(receivedSetData)
+			if err != nil {
+				log.Printf("[制御テスト] 受信データのデシリアライズに失敗しました (TID: %d): %v", setTID, err)
+			} else {
+				// TID の一致確認
+				if responseSetFrame.TID != setTID {
+					log.Printf("[制御テスト] 警告: 受信したTID (%d) が送信したTID (%d) と一致しません。", responseSetFrame.TID, setTID)
+				}
+
+				// ESV の確認
+				switch responseSetFrame.ESV {
+				case echonetlite.ESVSet_Res: // 0x71 - SetCの成功応答
+					log.Printf("[制御テスト] SetC応答(成功)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+				case echonetlite.ESVSetC_SNA: // 0x51 - SetCの失敗応答
+					log.Printf("[制御テスト] SetCエラー応答(失敗)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+				default:
+					log.Printf("[制御テスト] 予期しないESV (0x%X) を受信しました (TID: %d)", responseSetFrame.ESV, responseSetFrame.TID)
+				}
+			}
+		}
+
 		log.Println("監視サイクル終了 (全ターゲット処理完了)")
 	}
 }
