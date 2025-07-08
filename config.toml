@@ -1,2 +1,19 @@
 target_ip = "192.168.0.155"
 monitor_interval_seconds = 10
+
+# 充電時間帯 (HH:MM形式)
+charge_start_time = "09:00"
+charge_end_time = "15:00"
+
+# 充電電力の更新間隔 (分)
+charge_power_update_interval_minutes = 10
+
+# 制御ロジックの閾値 (W)
+auto_mode_threshold_watts = 500
+charge_mode_threshold_watts = 1000
+
+# モード変更の頻度抑制 (分)
+mode_change_inhibit_minutes = 5
+
+# ログ設定
+log_monitoring_data = true
