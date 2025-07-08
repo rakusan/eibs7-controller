@@ -351,6 +351,10 @@ func main() {
 		if i > 0 {
 			<-ticker.C // 2回目以降はtickerを待つ
 		}
+
+		// 監視サイクルごとのデータを保持するマップ
+		monitoringData := make(map[string]interface{})
+
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
@@ -418,6 +422,8 @@ func main() {
 						log.Printf("[%s]   プロパティ: %s (EPC: 0x%X), PDC: %d, EDT: (なし) (TID: %d)", target.ObjectName, propName, prop.EPC, prop.PDC, responseFrame.TID)
 					} else {
 						log.Printf("[%s]   プロパティ: %s (EPC: 0x%X), PDC: %d, EDT: %X, 値: %v (TID: %d)", target.ObjectName, propName, prop.EPC, prop.PDC, prop.EDT, decodedValue, responseFrame.TID)
+						// デコードした値をマップに保存
+						monitoringData[fmt.Sprintf("%s.%s", target.ObjectName, propName)] = decodedValue
 					}
 				}
 			case echonetlite.ESVGet_SNA: // 0x52 - Property value read request error
@@ -480,6 +486,23 @@ func main() {
 					log.Printf("[制御テスト] 予期しないESV (0x%X) を受信しました (TID: %d)", responseSetFrame.ESV, responseSetFrame.TID)
 				}
 			}
+		}
+
+		// --- 計算値の算出 ---
+		// 型アサーションで各値を取得
+		gridPower, gOK := monitoringData["分電盤メータリング (028701).瞬時電力計測値"].(int32)
+		pcsPower, pOK := monitoringData["マルチ入力PCS (02A501).瞬時電力計測値"].(int32)
+		pvPower, pvOK := monitoringData["住宅用太陽光発電 (027901).瞬時発電電力計測値"].(uint16)
+
+		if gOK && pOK && pvOK {
+			// 自家消費電力 = 分電盤メータリング.瞬時電力計測値 - マルチ入力PCS.瞬時電力計測値
+			selfConsumption := gridPower - pcsPower
+			// 余剰電力 = 太陽光発電.瞬時発電電力計測値 - 自家消費電力
+			surplusPower := int32(pvPower) - selfConsumption
+
+			log.Printf("[計算値] 自家消費電力: %d W, 余剰電力: %d W", selfConsumption, surplusPower)
+		} else {
+			log.Println("[計算値] 計算に必要なデータが不足しているため、計算をスキップしました。")
 		}
 
 		log.Println("監視サイクル終了 (全ターゲット処理完了)")
