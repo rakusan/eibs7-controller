@@ -407,10 +407,12 @@ func main() {
 			OPC:  1,
 			Properties: []echonetlite.Property{
 				{
+					'''-string
 					EPC: 0xDA,          // 運転モード設定
 					PDC: 1,             // データ長
-					EDT: []byte{0x42}, // 0x42: 自動モード
+					EDT: []byte{0x46}, // 0x46: 自動モード
 				},
+'''
 			},
 		}
 
