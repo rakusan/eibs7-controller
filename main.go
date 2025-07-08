@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -288,6 +289,10 @@ func getPropertyName(deoj echonetlite.EOJ, epc byte) string {
 }
 
 func main() {
+	// コマンドライン引数の定義
+	loopCount := flag.Int("loop", -1, "監視ループの実行回数を指定します。-1の場合は無限に実行します。")
+	flag.Parse()
+
 	setupLogger() // ロガーを設定
 
 	// --- 設定ファイルの読み込み ---
@@ -342,7 +347,10 @@ func main() {
 	log.Printf("監視を開始します。監視間隔: %d秒", cfg.MonitorIntervalSeconds)
 
 	// --- メインループ (監視サイクル) ---
-	for range ticker.C {
+	for i := 0; *loopCount == -1 || i < *loopCount; i++ {
+		if i > 0 {
+			<-ticker.C // 2回目以降はtickerを待つ
+		}
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
