@@ -288,6 +288,39 @@ func getPropertyName(deoj echonetlite.EOJ, epc byte) string {
 	return fmt.Sprintf("不明なプロパティ (DEOJ: %02X%02X, EPC: %02X)", deoj.ClassGroupCode, deoj.ClassCode, epc)
 }
 
+// isChargingTime は、現在時刻が設定された充電時間帯内にあるかどうかを判定します。
+func isChargingTime(startTimeStr, endTimeStr string) (bool, error) {
+	const timeFormat = "15:04"
+	now := time.Now()
+
+	// 時刻部分のみを抽出
+	currentTime, err := time.Parse(timeFormat, now.Format(timeFormat))
+	if err != nil {
+		return false, fmt.Errorf("現在時刻の解析に失敗しました: %w", err)
+	}
+
+	startTime, err := time.Parse(timeFormat, startTimeStr)
+	if err != nil {
+		return false, fmt.Errorf("開始時刻の解析に失敗しました ('%s'): %w", startTimeStr, err)
+	}
+
+	endTime, err := time.Parse(timeFormat, endTimeStr)
+	if err != nil {
+		return false, fmt.Errorf("終了時刻の解析に失敗しました ('%s'): %w", endTimeStr, err)
+	}
+
+	// 終了時刻が開始時刻より前の場合は、日付をまたぐ設定と判断
+	if endTime.Before(startTime) {
+		// 例: 23:00 - 02:00 の場合
+		// (現在時刻 >= 開始時刻) OR (現在時刻 < 終了時刻)
+		return !currentTime.Before(startTime) || currentTime.Before(endTime), nil
+	} else {
+		// 例: 09:00 - 15:00 の場合
+		// (現在時刻 >= 開始時刻) AND (現在時刻 < 終了時刻)
+		return !currentTime.Before(startTime) && currentTime.Before(endTime), nil
+	}
+}
+
 func main() {
 	// コマンドライン引数の定義
 	loopCount := flag.Int("loop", -1, "監視ループの実行回数を指定します。-1の場合は無限に実行します。")
@@ -357,6 +390,13 @@ func main() {
 
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
+
+		isChargingTimePeriod, err := isChargingTime(cfg.ChargeStartTime, cfg.ChargeEndTime)
+		if err != nil {
+			log.Printf("充電時間帯の判定に失敗しました: %v", err)
+		} else {
+			log.Printf("現在、充電時間帯です: %t", isChargingTimePeriod)
+		}
 
 		for _, target := range targets {
 			tid := getNextTID()
