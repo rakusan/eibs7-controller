@@ -474,60 +474,6 @@ func main() {
 			}
 		}
 
-		// --- (オプション) 制御機能(Set)のテスト ---
-		// 蓄電池の運転モードを「自動」に設定してみる
-		setTID := getNextTID()
-		log.Printf("[制御テスト] 蓄電池の運転モードを「自動」に設定します (TID: %d)", setTID)
-
-		setFrame := echonetlite.Frame{
-			EHD1: echonetlite.EchonetLiteEHD1,
-			EHD2: echonetlite.Format1,
-			TID:  setTID,
-			SEOJ: controllerEOJ,
-			DEOJ: echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
-			ESV:  echonetlite.ESVSetC,                  // 0x61: SetC (応答要)
-			OPC:  1,
-			Properties: []echonetlite.Property{
-				{
-					EPC: 0xDA,         // 運転モード設定
-					PDC: 1,            // データ長
-					EDT: []byte{0x46}, // 0x46: 自動モード
-				},
-			},
-		}
-
-		// --- フレームを送信し、応答を受信 ---
-		receivedSetData, _, err := sendAndReceiveEchonetLiteFrame(targetIP, setFrame, responseTimeout)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Printf("[制御テスト] 処理がタイムアウトしました (TID: %d)", setTID)
-			} else {
-				log.Printf("[制御テスト] ECHONET Lite 通信中にエラーが発生しました (TID: %d): %v", setTID, err)
-			}
-		} else {
-			// --- 応答受信成功時の処理 ---
-			var responseSetFrame echonetlite.Frame
-			err = responseSetFrame.UnmarshalBinary(receivedSetData)
-			if err != nil {
-				log.Printf("[制御テスト] 受信データのデシリアライズに失敗しました (TID: %d): %v", setTID, err)
-			} else {
-				// TID の一致確認
-				if responseSetFrame.TID != setTID {
-					log.Printf("[制御テスト] 警告: 受信したTID (%d) が送信したTID (%d) と一致しません。", responseSetFrame.TID, setTID)
-				}
-
-				// ESV の確認
-				switch responseSetFrame.ESV {
-				case echonetlite.ESVSet_Res: // 0x71 - SetCの成功応答
-					log.Printf("[制御テスト] SetC応答(成功)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
-				case echonetlite.ESVSetC_SNA: // 0x51 - SetCの失敗応答
-					log.Printf("[制御テスト] SetCエラー応答(失敗)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
-				default:
-					log.Printf("[制御テスト] 予期しないESV (0x%X) を受信しました (TID: %d)", responseSetFrame.ESV, responseSetFrame.TID)
-				}
-			}
-		}
-
 		// --- 計算値の算出 ---
 		// 型アサーションで各値を取得
 		gridPower, gOK := monitoringData["分電盤メータリング (028701).瞬時電力計測値"].(int32)
@@ -545,6 +491,15 @@ func main() {
 			log.Println("[計算値] 計算に必要なデータが不足しているため、計算をスキップしました。")
 		}
 
+		// --- 制御ロジック --- 
+		if isChargingTimePeriod {
+			log.Println("[制御] 充電時間帯です。制御ロジックを実行します。")
+			// ここに充電時間帯の制御ロジックを実装
+		} else {
+			log.Println("[制御] 充電時間帯ではありません。自動モードに設定します。")
+			// ここに充電時間帯以外の制御ロジックを実装
+		}
+
 		log.Println("監視サイクル終了 (全ターゲット処理完了)")
-	}
+}
 }
