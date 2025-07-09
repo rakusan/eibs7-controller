@@ -497,9 +497,68 @@ func main() {
 			// ここに充電時間帯の制御ロジックを実装
 		} else {
 			log.Println("[制御] 充電時間帯ではありません。自動モードに設定します。")
-			// ここに充電時間帯以外の制御ロジックを実装
+			err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
+			if err != nil {
+				log.Printf("[制御] 蓄電池の運転モード設定に失敗しました: %v", err)
+			}
 		}
 
 		log.Println("監視サイクル終了 (全ターゲット処理完了)")
+	}
 }
+
+// setBatteryOperationMode は蓄電池の運転モードを設定します。
+func setBatteryOperationMode(targetIP string, mode byte, timeout time.Duration) error {
+	setTID := getNextTID()
+	log.Printf("[制御] 蓄電池の運転モードを 0x%X に設定します (TID: %d)", mode, setTID)
+
+	setFrame := echonetlite.Frame{
+		EHD1: echonetlite.EchonetLiteEHD1,
+		EHD2: echonetlite.Format1,
+		TID:  setTID,
+		SEOJ: controllerEOJ,
+		DEOJ: echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
+		ESV:  echonetlite.ESVSetC,                   // 0x61: SetC (応答要)
+		OPC:  1,
+		Properties: []echonetlite.Property{
+			{
+				EPC: 0xDA, // 運転モード設定
+				PDC: 1,
+				EDT: []byte{mode},
+			},
+		},
+	}
+
+	// --- フレームを送信し、応答を受信 ---
+	receivedSetData, _, err := sendAndReceiveEchonetLiteFrame(targetIP, setFrame, timeout)
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return fmt.Errorf("処理がタイムアウトしました (TID: %d): %w", setTID, err)
+		} else {
+			return fmt.Errorf("ECHONET Lite 通信中にエラーが発生しました (TID: %d): %w", setTID, err)
+		}
+	} else {
+		// --- 応答受信成功時の処理 ---
+		var responseSetFrame echonetlite.Frame
+		err = responseSetFrame.UnmarshalBinary(receivedSetData)
+		if err != nil {
+			return fmt.Errorf("受信データのデシリアライズに失敗しました (TID: %d): %w", setTID, err)
+		} else {
+			// TID の一致確認
+			if responseSetFrame.TID != setTID {
+				log.Printf("[制御] 警告: 受信したTID (%d) が送信したTID (%d) と一致しません。", responseSetFrame.TID, setTID)
+			}
+
+			// ESV の確認
+			switch responseSetFrame.ESV {
+			case echonetlite.ESVSet_Res: // 0x71 - SetCの成功応答
+				log.Printf("[制御] SetC応答(成功)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+				return nil
+			case echonetlite.ESVSetC_SNA: // 0x51 - SetCの失敗応答
+				return fmt.Errorf("SetCエラー応答(失敗)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+			default:
+				return fmt.Errorf("予期しないESV (0x%X) を受信しました (TID: %d)", responseSetFrame.ESV, setTID)
+			}
+		}
+	}
 }
