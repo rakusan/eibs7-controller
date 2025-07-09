@@ -26,15 +26,15 @@ var currentTID echonetlite.TID = 0
 
 // 設定ファイルの内容をマッピングする構造体
 type Config struct {
-	TargetIP                       string `toml:"target_ip"`
-	MonitorIntervalSeconds         int    `toml:"monitor_interval_seconds"`
-	ChargeStartTime                string `toml:"charge_start_time"`
-	ChargeEndTime                  string `toml:"charge_end_time"`
+	TargetIP                         string `toml:"target_ip"`
+	MonitorIntervalSeconds           int    `toml:"monitor_interval_seconds"`
+	ChargeStartTime                  string `toml:"charge_start_time"`
+	ChargeEndTime                    string `toml:"charge_end_time"`
 	ChargePowerUpdateIntervalMinutes int    `toml:"charge_power_update_interval_minutes"`
-	AutoModeThresholdWatts         int    `toml:"auto_mode_threshold_watts"`
-	ChargeModeThresholdWatts       int    `toml:"charge_mode_threshold_watts"`
-	ModeChangeInhibitMinutes       int    `toml:"mode_change_inhibit_minutes"`
-	LogMonitoringData              bool   `toml:"log_monitoring_data"`
+	AutoModeThresholdWatts           int    `toml:"auto_mode_threshold_watts"`
+	ChargeModeThresholdWatts         int    `toml:"charge_mode_threshold_watts"`
+	ModeChangeInhibitMinutes         int    `toml:"mode_change_inhibit_minutes"`
+	LogMonitoringData                bool   `toml:"log_monitoring_data"`
 }
 
 // 設定ファイル名
@@ -485,12 +485,12 @@ func main() {
 			TID:  setTID,
 			SEOJ: controllerEOJ,
 			DEOJ: echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
-			ESV:  echonetlite.ESVSetC,                   // 0x61: SetC (応答要)
+			ESV:  echonetlite.ESVSetC,                  // 0x61: SetC (応答要)
 			OPC:  1,
 			Properties: []echonetlite.Property{
 				{
-					EPC: 0xDA,          // 運転モード設定
-					PDC: 1,             // データ長
+					EPC: 0xDA,         // 運転モード設定
+					PDC: 1,            // データ長
 					EDT: []byte{0x46}, // 0x46: 自動モード
 				},
 			},
