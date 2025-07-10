@@ -450,7 +450,7 @@ func main() {
 			switch responseFrame.ESV {
 			case echonetlite.ESVGet_Res: // 0x72 - Property value read response
 				log.Printf("[%s] Get応答を受信しました (TID: %d, ESV: 0x%X)", target.ObjectName, responseFrame.TID, responseFrame.ESV)
-				if len(responseFrame.Properties) == 0 {
+					if len(responseFrame.Properties) == 0 {
 					log.Printf("[%s] Get応答にプロパティが含まれていません (TID: %d)", target.ObjectName, responseFrame.TID)
 				}
 				for _, prop := range responseFrame.Properties {
@@ -494,7 +494,48 @@ func main() {
 		// --- 制御ロジック --- 
 		if isChargingTimePeriod {
 			log.Println("[制御] 充電時間帯です。制御ロジックを実行します。")
-			// ここに充電時間帯の制御ロジックを実装
+
+			// 目標充電量 (Wh) = AC実効容量(0xA0) * (1.0 - 蓄電残量3(0xE4) / 100.0)
+			// 残り時間 (分) = 充電終了時刻 - 現在時刻
+			// 目標充電電力 (W) = 目標充電量(Wh) * 60 / 残り時間(分) （ただし上限 5430W）
+
+			// 必要なデータがmonitoringDataにあるか確認
+			acCapacity, acOK := monitoringData["蓄電池 (027D01).AC実効容量（充電）"].(uint32)
+			batteryRemaining, brOK := monitoringData["蓄電池 (027D01).蓄電残量3"].(uint8)
+
+			if acOK && brOK {
+				// 目標充電量 (Wh)
+				targetChargeAmount := float64(acCapacity) * (1.0 - float64(batteryRemaining)/100.0)
+
+				// 残り時間 (分) の計算
+				const timeFormat = "15:04"
+				now := time.Now()
+				currentTime, _ := time.Parse(timeFormat, now.Format(timeFormat))
+				chargeEndTime, _ := time.Parse(timeFormat, cfg.ChargeEndTime)
+
+				remainingMinutes := chargeEndTime.Sub(currentTime).Minutes()
+				if remainingMinutes <= 0 {
+					log.Println("[制御] 充電終了時刻を過ぎているか、残り時間が0以下です。充電電力計算をスキップします。")
+				} else {
+					// 目標充電電力 (W)
+					targetChargePower := int(targetChargeAmount * 60 / remainingMinutes)
+
+					// 上限値 (5430W) を適用
+					if targetChargePower > 5430 {
+						targetChargePower = 5430
+					}
+
+					log.Printf("[制御] 目標充電電力: %d W (目標充電量: %.2f Wh, 残り時間: %.2f 分)", targetChargePower, targetChargeAmount, remainingMinutes)
+
+					// 充電電力設定
+					err = setBatteryChargePower(targetIP, targetChargePower, responseTimeout)
+					if err != nil {
+						log.Printf("[制御] 蓄電池の充電電力設定に失敗しました: %v", err)
+					}
+				}
+			} else {
+				log.Println("[制御] 充電電力計算に必要なデータが不足しているため、計算をスキップしました。")
+			}
 		} else {
 			log.Println("[制御] 充電時間帯ではありません。自動モードに設定します。")
 			err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
@@ -525,6 +566,66 @@ func setBatteryOperationMode(targetIP string, mode byte, timeout time.Duration) 
 				EPC: 0xDA, // 運転モード設定
 				PDC: 1,
 				EDT: []byte{mode},
+			},
+		},
+	}
+
+	// --- フレームを送信し、応答を受信 ---
+	receivedSetData, _, err := sendAndReceiveEchonetLiteFrame(targetIP, setFrame, timeout)
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return fmt.Errorf("処理がタイムアウトしました (TID: %d): %w", setTID, err)
+		} else {
+			return fmt.Errorf("ECHONET Lite 通信中にエラーが発生しました (TID: %d): %w", setTID, err)
+		}
+	} else {
+		// --- 応答受信成功時の処理 ---
+		var responseSetFrame echonetlite.Frame
+		err = responseSetFrame.UnmarshalBinary(receivedSetData)
+		if err != nil {
+			return fmt.Errorf("受信データのデシリアライズに失敗しました (TID: %d): %w", setTID, err)
+		} else {
+			// TID の一致確認
+			if responseSetFrame.TID != setTID {
+				log.Printf("[制御] 警告: 受信したTID (%d) が送信したTID (%d) と一致しません。", responseSetFrame.TID, setTID)
+			}
+
+			// ESV の確認
+			switch responseSetFrame.ESV {
+			case echonetlite.ESVSet_Res: // 0x71 - SetCの成功応答
+				log.Printf("[制御] SetC応答(成功)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+				return nil
+			case echonetlite.ESVSetC_SNA: // 0x51 - SetCの失敗応答
+				return fmt.Errorf("SetCエラー応答(失敗)を受信しました (TID: %d, ESV: 0x%X)", responseSetFrame.TID, responseSetFrame.ESV)
+			default:
+				return fmt.Errorf("予期しないESV (0x%X) を受信しました (TID: %d)", responseSetFrame.ESV, setTID)
+			}
+		}
+	}
+}
+
+// setBatteryChargePower は蓄電池の充電電力設定値を設定します。
+func setBatteryChargePower(targetIP string, power int, timeout time.Duration) error {
+	setTID := getNextTID()
+	log.Printf("[制御] 蓄電池の充電電力設定値を %d W に設定します (TID: %d)", power, setTID)
+
+	// 電力値を4バイトのバイト列に変換
+	powerBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(powerBytes, uint32(power))
+
+	setFrame := echonetlite.Frame{
+		EHD1: echonetlite.EchonetLiteEHD1,
+		EHD2: echonetlite.Format1,
+		TID:  setTID,
+		SEOJ: controllerEOJ,
+		DEOJ: echonetlite.NewEOJ(0x02, 0x7D, 0x01), // 蓄電池
+		ESV:  echonetlite.ESVSetC,                   // 0x61: SetC (応答要)
+		OPC:  1,
+		Properties: []echonetlite.Property{
+			{
+				EPC: 0xEB, // 充電電力設定値
+				PDC: 4,
+				EDT: powerBytes,
 			},
 		},
 	}
