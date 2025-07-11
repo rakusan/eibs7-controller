@@ -560,9 +560,19 @@ func main() {
 					// 目標充電電力 (W)
 					targetChargePower := int(targetChargeAmount * 60 / remainingMinutes)
 
-					// 上限値 (5430W) を適用
-					if targetChargePower > 5430 {
-						targetChargePower = 5430
+					// 上限値の計算
+					// 3000W と (余剰電力 - 500W) の小さい方を上限とする
+					powerCap := int32(3000)
+					if surplusPower-500 < powerCap {
+						powerCap = surplusPower - 500
+					}
+					if powerCap < 0 {
+						powerCap = 0
+					}
+
+					// 上限値を適用
+					if targetChargePower > int(powerCap) {
+						targetChargePower = int(powerCap)
 					}
 
 					log.Printf("[制御] 目標充電電力: %d W (目標充電量: %.2f Wh, 残り時間: %.2f 分)", targetChargePower, targetChargeAmount, remainingMinutes)
