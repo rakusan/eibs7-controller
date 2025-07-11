@@ -381,6 +381,7 @@ func main() {
 
 	// --- メインループ (監視サイクル) ---
 	var lastModeChangeTime time.Time
+	var lastChargePowerIncreaseTime time.Time
 	for i := 0; *loopCount == -1 || i < *loopCount; i++ {
 		if i > 0 {
 			<-ticker.C // 2回目以降はtickerを待つ
@@ -577,10 +578,33 @@ func main() {
 
 					log.Printf("[制御] 目標充電電力: %d W (目標充電量: %.2f Wh, 残り時間: %.2f 分)", targetChargePower, targetChargeAmount, remainingMinutes)
 
-					// 充電電力設定
-					err = setBatteryChargePower(targetIP, targetChargePower, responseTimeout)
-					if err != nil {
-						log.Printf("[制御] 蓄電池の充電電力設定に失敗しました: %v", err)
+					// 現在の充電電力設定値を取得
+					currentChargePower, cok := monitoringData["蓄電池 (027D01).充電電力設定値"].(uint32)
+
+					if cok {
+						if targetChargePower > int(currentChargePower) {
+							// 引き上げの場合
+							if time.Since(lastChargePowerIncreaseTime) < time.Duration(cfg.ChargePowerUpdateIntervalMinutes)*time.Minute {
+								log.Printf("[制御] 充電電力の引き上げは、前回の引き上げから%d分経過するまで行えません（残り: %s）。", cfg.ChargePowerUpdateIntervalMinutes, (time.Duration(cfg.ChargePowerUpdateIntervalMinutes)*time.Minute - time.Since(lastChargePowerIncreaseTime)).Truncate(time.Second))
+							} else {
+								err = setBatteryChargePower(targetIP, targetChargePower, responseTimeout)
+								if err != nil {
+									log.Printf("[制御] 蓄電池の充電電力設定に失敗しました: %v", err)
+								} else {
+									lastChargePowerIncreaseTime = time.Now()
+								}
+							}
+						} else if targetChargePower < int(currentChargePower) {
+							// 引き下げの場合
+							err = setBatteryChargePower(targetIP, targetChargePower, responseTimeout)
+							if err != nil {
+								log.Printf("[制御] 蓄電池の充電電力設定に失敗しました: %v", err)
+							}
+						} else {
+							log.Println("[制御] 目標充電電力と現在の設定値が同じため、設定変更は行いません。")
+						}
+					} else {
+						log.Println("[制御] 現在の充電電力設定値が取得できなかったため、充電電力の設定をスキップします。")
 					}
 				}
 			} else {
