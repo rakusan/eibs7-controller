@@ -389,6 +389,7 @@ func main() {
 		// 監視サイクルごとのデータを保持するマップ
 		monitoringData := make(map[string]interface{})
 		var surplusPower int32 // 余剰電力をループのスコープで定義
+		var currentOperationMode byte
 
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
@@ -466,6 +467,13 @@ func main() {
 						log.Printf("[%s]   プロパティ: %s (EPC: 0x%X), PDC: %d, EDT: %X, 値: %v (TID: %d)", target.ObjectName, propName, prop.EPC, prop.PDC, prop.EDT, decodedValue, responseFrame.TID)
 						// デコードした値をマップに保存
 						monitoringData[fmt.Sprintf("%s.%s", target.ObjectName, propName)] = decodedValue
+
+						// 現在の運転モードを更新
+						if target.ObjectName == "蓄電池 (027D01)" && prop.EPC == 0xDA {
+							if mode, ok := decodedValue.(uint8); ok {
+								currentOperationMode = mode
+							}
+						}
 					}
 				}
 			case echonetlite.ESVGet_SNA: // 0x52 - Property value read request error
@@ -504,20 +512,24 @@ func main() {
 			}
 
 			// 基本動作: 運転モードを「充電」に設定
-			err = setBatteryOperationMode(targetIP, 0x42, responseTimeout) // 0x42: 充電モード
-			if err != nil {
-				log.Printf("[制御] 蓄電池の運転モード設定（充電）に失敗しました: %v", err)
-				// エラーが発生しても処理を続行
+			if currentOperationMode != 0x42 {
+				err = setBatteryOperationMode(targetIP, 0x42, responseTimeout) // 0x42: 充電モード
+				if err != nil {
+					log.Printf("[制御] 蓄電池の運転モード設定（充電）に失敗しました: %v", err)
+					// エラーが発生しても処理を続行
+				}
 			}
 
 			// 買電抑制制御
 			if surplusPower < int32(cfg.AutoModeThresholdWatts) {
 				log.Printf("[制御] 余剰電力が閾値 (%d W) を下回ったため、運転モードを「自動」に設定します。", cfg.AutoModeThresholdWatts)
-				err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
-				if err != nil {
-					log.Printf("[制御] 蓄電池の運転モード設定（自動）に失敗しました: %v", err)
-				} else {
-					lastModeChangeTime = time.Now()
+				if currentOperationMode != 0x46 {
+					err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
+					if err != nil {
+						log.Printf("[制御] 蓄電池の運転モード設定（自動）に失敗しました: %v", err)
+					} else {
+						lastModeChangeTime = time.Now()
+					}
 				}
 			} else {
 				log.Println("[制御] 余剰電力は閾値以上です。充電を継続します。")
@@ -566,9 +578,11 @@ func main() {
 			}
 		} else {
 			log.Println("[制御] 充電時間帯ではありません。自動モードに設定します。")
-			err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
-			if err != nil {
-				log.Printf("[制御] 蓄電池の運転モード設定に失敗しました: %v", err)
+			if currentOperationMode != 0x46 {
+				err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
+				if err != nil {
+					log.Printf("[制御] 蓄電池の運転モード設定に失敗しました: %v", err)
+				}
 			}
 		}
 
