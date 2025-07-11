@@ -495,6 +495,13 @@ func main() {
 		if isChargingTimePeriod {
 			log.Println("[制御] 充電時間帯です。制御ロジックを実行します。")
 
+			// 基本動作: 運転モードを「充電」に設定
+			err = setBatteryOperationMode(targetIP, 0x42, responseTimeout) // 0x42: 充電モード
+			if err != nil {
+				log.Printf("[制御] 蓄電池の運転モード設定（充電）に失敗しました: %v", err)
+				// エラーが発生しても処理を続行
+			}
+
 			// 目標充電量 (Wh) = AC実効容量(0xA0) * (1.0 - 蓄電残量3(0xE4) / 100.0)
 			// 残り時間 (分) = 充電終了時刻 - 現在時刻
 			// 目標充電電力 (W) = 目標充電量(Wh) * 60 / 残り時間(分) （ただし上限 5430W）
