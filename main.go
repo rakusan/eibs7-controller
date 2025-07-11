@@ -380,6 +380,7 @@ func main() {
 	log.Printf("監視を開始します。監視間隔: %d秒", cfg.MonitorIntervalSeconds)
 
 	// --- メインループ (監視サイクル) ---
+	var lastModeChangeTime time.Time
 	for i := 0; *loopCount == -1 || i < *loopCount; i++ {
 		if i > 0 {
 			<-ticker.C // 2回目以降はtickerを待つ
@@ -496,6 +497,12 @@ func main() {
 		if isChargingTimePeriod {
 			log.Println("[制御] 充電時間帯です。制御ロジックを実行します。")
 
+			// 安全性: モード変更頻度抑制
+			if !lastModeChangeTime.IsZero() && time.Since(lastModeChangeTime) < time.Duration(cfg.ModeChangeInhibitMinutes)*time.Minute {
+				log.Printf("[制御] モード変更後、抑制時間が経過していないため（残り: %s）、制御をスキップします。", (time.Duration(cfg.ModeChangeInhibitMinutes)*time.Minute - time.Since(lastModeChangeTime)).Truncate(time.Second))
+				continue
+			}
+
 			// 基本動作: 運転モードを「充電」に設定
 			err = setBatteryOperationMode(targetIP, 0x42, responseTimeout) // 0x42: 充電モード
 			if err != nil {
@@ -509,6 +516,8 @@ func main() {
 				err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
 				if err != nil {
 					log.Printf("[制御] 蓄電池の運転モード設定（自動）に失敗しました: %v", err)
+				} else {
+					lastModeChangeTime = time.Now()
 				}
 			} else {
 				log.Println("[制御] 余剰電力は閾値以上です。充電を継続します。")
