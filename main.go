@@ -387,6 +387,7 @@ func main() {
 
 		// 監視サイクルごとのデータを保持するマップ
 		monitoringData := make(map[string]interface{})
+		var surplusPower int32 // 余剰電力をループのスコープで定義
 
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
@@ -484,7 +485,7 @@ func main() {
 			// 自家消費電力 = 分電盤メータリング.瞬時電力計測値 - マルチ入力PCS.瞬時電力計測値
 			selfConsumption := gridPower - pcsPower
 			// 余剰電力 = 太陽光発電.瞬時発電電力計測値 - 自家消費電力
-			surplusPower := int32(pvPower) - selfConsumption
+			surplusPower = int32(pvPower) - selfConsumption
 
 			log.Printf("[計算値] 自家消費電力: %d W, 余剰電力: %d W", selfConsumption, surplusPower)
 		} else {
@@ -500,6 +501,17 @@ func main() {
 			if err != nil {
 				log.Printf("[制御] 蓄電池の運転モード設定（充電）に失敗しました: %v", err)
 				// エラーが発生しても処理を続行
+			}
+
+			// 買電抑制制御
+			if surplusPower < int32(cfg.AutoModeThresholdWatts) {
+				log.Printf("[制御] 余剰電力が閾値 (%d W) を下回ったため、運転モードを「自動」に設定します。", cfg.AutoModeThresholdWatts)
+				err = setBatteryOperationMode(targetIP, 0x46, responseTimeout) // 0x46: 自動モード
+				if err != nil {
+					log.Printf("[制御] 蓄電池の運転モード設定（自動）に失敗しました: %v", err)
+				}
+			} else {
+				log.Println("[制御] 余剰電力は閾値以上です。充電を継続します。")
 			}
 
 			// 目標充電量 (Wh) = AC実効容量(0xA0) * (1.0 - 蓄電残量3(0xE4) / 100.0)
