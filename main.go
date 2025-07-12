@@ -34,6 +34,9 @@ type Config struct {
 	AutoModeThresholdWatts           int    `toml:"auto_mode_threshold_watts"`
 	ChargeModeThresholdWatts         int    `toml:"charge_mode_threshold_watts"`
 	ModeChangeInhibitMinutes         int    `toml:"mode_change_inhibit_minutes"`
+	MinSurplusPowerJudgmentMinutes   int    `toml:"min_surplus_power_judgment_minutes"`
+	SurplusPowerMarginWatts          int    `toml:"surplus_power_margin_watts"`
+	MaxChargePowerWatts              int    `toml:"max_charge_power_watts"`
 	LogMonitoringData                bool   `toml:"log_monitoring_data"`
 }
 
@@ -101,6 +104,24 @@ func loadConfig(filePath string) (*Config, error) {
 	if config.ModeChangeInhibitMinutes <= 0 {
 		log.Printf("設定ファイル '%s' の 'mode_change_inhibit_minutes' が未設定または0以下です。デフォルト値5分を使用します。", filePath)
 		config.ModeChangeInhibitMinutes = 5
+	}
+
+	// MinSurplusPowerJudgmentMinutes のデフォルト値設定
+	if config.MinSurplusPowerJudgmentMinutes <= 0 {
+		log.Printf("設定ファイル '%s' の 'min_surplus_power_judgment_minutes' が未設定または0以下です。デフォルト値5分を使用します。", filePath)
+		config.MinSurplusPowerJudgmentMinutes = 5
+	}
+
+	// SurplusPowerMarginWatts のデフォルト値設定
+	if config.SurplusPowerMarginWatts <= 0 {
+		log.Printf("設定ファイル '%s' の 'surplus_power_margin_watts' が未設定または0以下です。デフォルト値500Wを使用します。", filePath)
+		config.SurplusPowerMarginWatts = 500
+	}
+
+	// MaxChargePowerWatts のデフォルト値設定
+	if config.MaxChargePowerWatts <= 0 {
+		log.Printf("設定ファイル '%s' の 'max_charge_power_watts' が未設定または0以下です。デフォルト値3000Wを使用します。", filePath)
+		config.MaxChargePowerWatts = 3000
 	}
 
 	return &config, nil
@@ -342,6 +363,9 @@ func main() {
 	log.Printf("  AutoModeThresholdWatts: %d", cfg.AutoModeThresholdWatts)
 	log.Printf("  ChargeModeThresholdWatts: %d", cfg.ChargeModeThresholdWatts)
 	log.Printf("  ModeChangeInhibitMinutes: %d", cfg.ModeChangeInhibitMinutes)
+	log.Printf("  MinSurplusPowerJudgmentMinutes: %d", cfg.MinSurplusPowerJudgmentMinutes)
+	log.Printf("  SurplusPowerMarginWatts: %d", cfg.SurplusPowerMarginWatts)
+	log.Printf("  MaxChargePowerWatts: %d", cfg.MaxChargePowerWatts)
 	log.Printf("  LogMonitoringData: %t", cfg.LogMonitoringData)
 
 	// --- 設定値 ---
@@ -382,6 +406,8 @@ func main() {
 	// --- メインループ (監視サイクル) ---
 	var lastModeChangeTime time.Time
 	var lastChargePowerIncreaseTime time.Time
+	var surplusPowerHistory []int32
+	var lastMinSurplusPowerJudgmentTime time.Time
 	for i := 0; *loopCount == -1 || i < *loopCount; i++ {
 		if i > 0 {
 			<-ticker.C // 2回目以降はtickerを待つ
@@ -536,9 +562,22 @@ func main() {
 				log.Println("[制御] 余剰電力は閾値以上です。充電を継続します。")
 			}
 
-			// 目標充電量 (Wh) = AC実効容量(0xA0) * (1.0 - 蓄電残量3(0xE4) / 100.0)
-			// 残り時間 (分) = 充電終了時刻 - 現在時刻
-			// 目標充電電力 (W) = 目標充電量(Wh) * 60 / 残り時間(分) （ただし上限 5430W）
+			// 最小余剰電力の計算
+			now := time.Now()
+			var minSurplusPower int32
+			if now.Sub(lastMinSurplusPowerJudgmentTime) > time.Duration(cfg.MinSurplusPowerJudgmentMinutes)*time.Minute {
+				if len(surplusPowerHistory) > 0 {
+					minSurplusPower = surplusPowerHistory[0]
+					for _, v := range surplusPowerHistory {
+						if v < minSurplusPower {
+							minSurplusPower = v
+						}
+					}
+				}
+				log.Printf("[制御] 最小余剰電力を更新しました: %d W", minSurplusPower)
+				surplusPowerHistory = []int32{}
+				lastMinSurplusPowerJudgmentTime = now
+			}
 
 			// 必要なデータがmonitoringDataにあるか確認
 			acCapacity, acOK := monitoringData["蓄電池 (027D01).AC実効容量（充電）"].(uint32)
@@ -550,7 +589,6 @@ func main() {
 
 				// 残り時間 (分) の計算
 				const timeFormat = "15:04"
-				now := time.Now()
 				currentTime, _ := time.Parse(timeFormat, now.Format(timeFormat))
 				chargeEndTime, _ := time.Parse(timeFormat, cfg.ChargeEndTime)
 
@@ -562,10 +600,10 @@ func main() {
 					targetChargePower := int(targetChargeAmount * 60 / remainingMinutes)
 
 					// 上限値の計算
-					// 3000W と (余剰電力 - 500W) の小さい方を上限とする
-					powerCap := int32(3000)
-					if surplusPower-500 < powerCap {
-						powerCap = surplusPower - 500
+					// 最小余剰電力(W)-余剰電力余力(W) と 最大充電電力(W) の小さい方を上限とする
+					powerCap := int32(cfg.MaxChargePowerWatts)
+					if minSurplusPower-int32(cfg.SurplusPowerMarginWatts) < powerCap {
+						powerCap = minSurplusPower - int32(cfg.SurplusPowerMarginWatts)
 					}
 					if powerCap < 0 {
 						powerCap = 0
