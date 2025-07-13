@@ -15,5 +15,14 @@ charge_mode_threshold_watts = 1000
 # モード変更の頻度抑制 (分)
 mode_change_inhibit_minutes = 5
 
+# 最小余剰電力判定時間 (分)
+min_surplus_power_judgment_minutes = 5
+
+# 余剰電力余力 (W)
+surplus_power_margin_watts = 500
+
+# 最大充電電力 (W)
+max_charge_power_watts = 3000
+
 # ログ設定
 log_monitoring_data = true

@@ -407,7 +407,8 @@ func main() {
 	var lastModeChangeTime time.Time
 	var lastChargePowerIncreaseTime time.Time
 	var surplusPowerHistory []int32
-	var lastMinSurplusPowerJudgmentTime time.Time
+	var minSurplusPower int32 // ループ外で宣言
+
 	for i := 0; *loopCount == -1 || i < *loopCount; i++ {
 		if i > 0 {
 			<-ticker.C // 2回目以降はtickerを待つ
@@ -417,6 +418,7 @@ func main() {
 		monitoringData := make(map[string]interface{})
 		var surplusPower int32 // 余剰電力をループのスコープで定義
 		var currentOperationMode byte
+		
 
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
@@ -523,7 +525,29 @@ func main() {
 			// 余剰電力 = 太陽光発電.瞬時発電電力計測値 - 自家消費電力
 			surplusPower = int32(pvPower) - selfConsumption
 
-			log.Printf("[計算値] 自家消費電力: %d W, 余剰電力: %d W", selfConsumption, surplusPower)
+			// 最小余剰電力計算のために履歴に追加
+			maxHistoryCount := cfg.MinSurplusPowerJudgmentMinutes * 60 / cfg.MonitorIntervalSeconds
+			surplusPowerHistory = append(surplusPowerHistory, surplusPower)
+			if len(surplusPowerHistory) > maxHistoryCount {
+				surplusPowerHistory = surplusPowerHistory[1:]
+			}
+
+			// 最小余剰電力の計算
+			// surplusPowerHistory が空でなければ、その中の最小値を minSurplusPower とする
+			if len(surplusPowerHistory) > 0 {
+				minSurplusPower = surplusPowerHistory[0] // 最初の要素で初期化
+				for _, v := range surplusPowerHistory {
+					if v < minSurplusPower {
+						minSurplusPower = v
+					}
+				}
+			} else {
+				minSurplusPower = 0 // 履歴が空の場合は0など適切な初期値
+			}
+
+			
+
+			log.Printf("[計算値] 自家消費電力: %d W, 余剰電力: %d W, 最小余剰電力: %d W", selfConsumption, surplusPower, minSurplusPower)
 		} else {
 			log.Println("[計算値] 計算に必要なデータが不足しているため、計算をスキップしました。")
 		}
@@ -562,24 +586,8 @@ func main() {
 				log.Println("[制御] 余剰電力は閾値以上です。充電を継続します。")
 			}
 
-			// 最小余剰電力の計算
-			now := time.Now()
-			var minSurplusPower int32
-			if now.Sub(lastMinSurplusPowerJudgmentTime) > time.Duration(cfg.MinSurplusPowerJudgmentMinutes)*time.Minute {
-				if len(surplusPowerHistory) > 0 {
-					minSurplusPower = surplusPowerHistory[0]
-					for _, v := range surplusPowerHistory {
-						if v < minSurplusPower {
-							minSurplusPower = v
-						}
-					}
-				}
-				log.Printf("[制御] 最小余剰電力を更新しました: %d W", minSurplusPower)
-				surplusPowerHistory = []int32{}
-				lastMinSurplusPowerJudgmentTime = now
-			}
-
 			// 必要なデータがmonitoringDataにあるか確認
+			now := time.Now()
 			acCapacity, acOK := monitoringData["蓄電池 (027D01).AC実効容量（充電）"].(uint32)
 			batteryRemaining, brOK := monitoringData["蓄電池 (027D01).蓄電残量3"].(uint8)
 
