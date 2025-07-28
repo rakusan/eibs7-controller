@@ -40,7 +40,7 @@ $ GOOS=linux GOARCH=amd64 go build main.go
 
 ## 設定
 `config.toml` ファイルで設定できます。
-設定可能な項目は `config.toml` 内のコメントと [docs/README.md](docs/README.md) をご覧ください。
+設定可能な項目は [config.toml](config.toml) 内のコメントと [docs/README.md](docs/README.md) をご覧ください。
 
 ## 補足
 本ソフトウェアは Gemini CLI を使用して生成しました。作者はgo言語に詳しくありません。
