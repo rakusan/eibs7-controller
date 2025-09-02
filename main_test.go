@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+       "time"
 
 	"github.com/stretchr/testify/assert"
 	"kuramo.ch/eibs7-controller/echonetlite"
