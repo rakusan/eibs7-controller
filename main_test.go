@@ -13,27 +13,40 @@ func TestIsChargingTime(t *testing.T) {
 	
 	t.Run("CrossMidnight", func(t *testing.T) {
 		// Test a time within the range (should return true)
-		_, err := isChargingTime("23:00", "02:00")
+               // Using a fixed time that should be in the 23:00-02:00 range
+               testTime, _ := time.Parse("15:04", "23:30")
+               result, err := isChargingTime("23:00", "02:00", testTime)
 		assert.NoError(t, err)
-		// This test will pass because we're testing the logic for midnight crossing
-		// The actual result depends on current time, but we're testing the logic path
+               assert.True(t, result, "Should return true for time in 23:00-02:00 range")
+
+               // Test a time outside the range (should return false)
+               testTime, _ = time.Parse("15:04", "01:30")
+               result, err = isChargingTime("23:00", "02:00", testTime)
+               assert.NoError(t, err)
+               assert.False(t, result, "Should return false for time outside 23:00-02:00 range")
 	})
 
 	// Test invalid time format
 	t.Run("InvalidTimeFormat", func(t *testing.T) {
-		result, err := isChargingTime("invalid", "15:00")
+               testTime, _ := time.Parse("15:04", "12:00")
+               result, err := isChargingTime("invalid", "15:00", testTime)
 		assert.Error(t, err)
 		assert.False(t, result, "Should return false and error for invalid time format")
 	})
 
-	// Test the logic with known times that should work
-	t.Run("LogicTest", func(t *testing.T) {
-		// Since we can't control the actual time in tests, let's just make sure
-		// the function doesn't panic and handles valid inputs correctly
-		_, err := isChargingTime("09:00", "15:00")
+       // Test normal range (09:00-15:00)
+       t.Run("NormalRange", func(t *testing.T) {
+               // Test a time within the range (should return true)
+               testTime, _ := time.Parse("15:04", "12:00")
+               result, err := isChargingTime("09:00", "15:00", testTime)
+               assert.NoError(t, err)
+               assert.True(t, result, "Should return true for time in 09:00-15:00 range")
+
+               // Test a time outside the range (should return false)
+               testTime, _ = time.Parse("15:04", "16:00")
+               result, err = isChargingTime("09:00", "15:00", testTime)
 		assert.NoError(t, err)
-		// We can't assert the exact result since it depends on current time,
-		// but we can ensure no error occurs and function executes properly
+               assert.False(t, result, "Should return false for time outside 09:00-15:00 range")
 	})
 }
 
