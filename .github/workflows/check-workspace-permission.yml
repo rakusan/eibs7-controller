@@ -1,0 +1,15 @@
+name: Check workspace permission
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-workspace-permission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check workspace permission
+        run: cd / && ls -la && cd /workspace && ls -la
