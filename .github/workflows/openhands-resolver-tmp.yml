@@ -240,8 +240,8 @@ jobs:
               await exec.exec("pip install -r /tmp/requirements.txt");
             }
 
-      - name: Check workspace permission
-        run: id; ls -la /workspace /workspace/.git
+      - name: set workspace permission
+        run: mkdir -p /workspace/.git; chmod 777 /workspace /workspace/.git
 
       - name: Attempt to resolve issue
         env:
