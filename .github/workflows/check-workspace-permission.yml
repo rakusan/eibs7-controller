@@ -11,5 +11,8 @@ jobs:
   check-workspace-permission:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check workspace permission
         run: cd / && ls -la && cd /workspace && ls -la
