@@ -50,16 +50,16 @@ on:
       PAT_USERNAME:
         required: false
 
-  issues:
-    types: [labeled]
-  pull_request:
-    types: [labeled]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
+  #issues:
+  #  types: [labeled]
+  #pull_request:
+  #  types: [labeled]
+  #issue_comment:
+  #  types: [created]
+  #pull_request_review_comment:
+  #  types: [created]
+  #pull_request_review:
+  #  types: [submitted]
 
 permissions:
   contents: write
@@ -257,10 +257,7 @@ jobs:
             --issue-type ${{ env.ISSUE_TYPE }} \
             --max-iterations ${{ env.MAX_ITERATIONS }} \
             --comment-id ${{ env.COMMENT_ID }} \
-            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
-
-      - name: Check permissions
-        run: id; ls -la /workspace /workspace/.git
+            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} ; id; ls -la /workspace /workspace/.git
 
       - name: Check resolution result
         id: check_result
