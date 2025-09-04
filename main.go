@@ -309,10 +309,9 @@ func getPropertyName(deoj echonetlite.EOJ, epc byte) string {
 	return fmt.Sprintf("不明なプロパティ (DEOJ: %02X%02X, EPC: %02X)", deoj.ClassGroupCode, deoj.ClassCode, epc)
 }
 
-// isChargingTime は、現在時刻が設定された充電時間帯内にあるかどうかを判定します。
-func isChargingTime(startTimeStr, endTimeStr string) (bool, error) {
+// isChargingTime は、指定時刻が設定された充電時間帯内にあるかどうかを判定します。
+func isChargingTime(startTimeStr, endTimeStr string, now time.Time) (bool, error) {
 	const timeFormat = "15:04"
-	now := time.Now()
 
 	// 時刻部分のみを抽出
 	currentTime, err := time.Parse(timeFormat, now.Format(timeFormat))
@@ -423,7 +422,7 @@ func main() {
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
-		isChargingTimePeriod, err := isChargingTime(cfg.ChargeStartTime, cfg.ChargeEndTime)
+               isChargingTimePeriod, err := isChargingTime(cfg.ChargeStartTime, cfg.ChargeEndTime, time.Now())
 		if err != nil {
 			log.Printf("充電時間帯の判定に失敗しました: %v", err)
 		} else {
