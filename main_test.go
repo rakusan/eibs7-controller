@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"kuramo.ch/eibs7-controller/echonetlite"
@@ -13,10 +14,23 @@ func TestIsChargingTime(t *testing.T) {
 	
 	t.Run("CrossMidnight", func(t *testing.T) {
 		// Test a time within the range (should return true)
-		_, err := isChargingTime("23:00", "02:00")
+		// Using a fixed time that should be in the 23:00-02:00 range
+		testTime, _ := time.Parse("15:04", "23:30")
+		result, err := isChargingTimeWithTime("23:00", "02:00", testTime)
 		assert.NoError(t, err)
-		// This test will pass because we're testing the logic for midnight crossing
-		// The actual result depends on current time, but we're testing the logic path
+		assert.True(t, result, "Should return true for time 23:30 in 23:00-02:00 range")
+		
+		// Test a time that should also be in the range (should return true)
+		testTime, _ = time.Parse("15:04", "01:30")
+		result, err = isChargingTimeWithTime("23:00", "02:00", testTime)
+		assert.NoError(t, err)
+		assert.True(t, result, "Should return true for time 01:30 in 23:00-02:00 range")
+		
+		// Test a time outside the range (should return false)
+		testTime, _ = time.Parse("15:04", "02:30")
+		result, err = isChargingTimeWithTime("23:00", "02:00", testTime)
+		assert.NoError(t, err)
+		assert.False(t, result, "Should return false for time 02:30 in 23:00-02:00 range")
 	})
 
 	// Test invalid time format
@@ -24,6 +38,32 @@ func TestIsChargingTime(t *testing.T) {
 		result, err := isChargingTime("invalid", "15:00")
 		assert.Error(t, err)
 		assert.False(t, result, "Should return false and error for invalid time format")
+	})
+
+	// Test normal range (09:00-15:00)
+	t.Run("NormalRange", func(t *testing.T) {
+		// Test a time within the range (should return true)
+		testTime, _ := time.Parse("15:04", "12:00")
+		result, err := isChargingTimeWithTime("09:00", "15:00", testTime)
+		assert.NoError(t, err)
+		assert.True(t, result, "Should return true for time 12:00 in 09:00-15:00 range")
+		
+		// Test a time outside the range (should return false)
+		testTime, _ = time.Parse("15:04", "16:00")
+		result, err = isChargingTimeWithTime("09:00", "15:00", testTime)
+		assert.NoError(t, err)
+		assert.False(t, result, "Should return false for time 16:00 in 09:00-15:00 range")
+		
+		// Test boundary times (should return true)
+		testTime, _ = time.Parse("15:04", "09:00")
+		result, err = isChargingTimeWithTime("09:00", "15:00", testTime)
+		assert.NoError(t, err)
+		assert.True(t, result, "Should return true for start time 09:00 in 09:00-15:00 range")
+		
+		testTime, _ = time.Parse("15:04", "15:00")
+		result, err = isChargingTimeWithTime("09:00", "15:00", testTime)
+		assert.NoError(t, err)
+		assert.False(t, result, "Should return false for end time 15:00 in 09:00-15:00 range")
 	})
 
 	// Test the logic with known times that should work
