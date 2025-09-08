@@ -251,6 +251,7 @@ jobs:
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
           LLM_NATIVE_TOOL_CALLING: "true"
+          SANDBOX_USER_ID: "1001"
         run: |
           cd /tmp && python -m openhands.resolver.resolve_issue \
             --selected-repo ${{ github.repository }} \
@@ -289,6 +290,7 @@ jobs:
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
           LLM_NATIVE_TOOL_CALLING: "true"
+          SANDBOX_USER_ID: "1001"
         run: |
           if [ "${{ steps.check_result.outputs.RESOLUTION_SUCCESS }}" == "true" ]; then
             cd /tmp && python -m openhands.resolver.send_pull_request \
