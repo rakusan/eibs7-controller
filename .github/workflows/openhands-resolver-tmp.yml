@@ -85,21 +85,14 @@ jobs:
       )
     runs-on: "${{ inputs.runner || 'ubuntu-latest' }}"
     steps:
-      - name: set working directory permission
-        run: |
-          chmod 1775 /home/runner/work/eibs7-controller/eibs7-controller
-          sudo chown 1000 /home/runner/work/eibs7-controller/eibs7-controller
-          ls -la /home/runner/work/eibs7-controller/eibs7-controller
-          umask 0002
-        
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check working directory permission
+      - name: Set working directory permission
         run: |
+          chmod 1775 /home/runner/work/eibs7-controller/eibs7-controller/.git
+          sudo chown 1000 /home/runner/work/eibs7-controller/eibs7-controller/.git
           ls -la /home/runner/work/eibs7-controller/eibs7-controller
-          id
-          umask
         
       - name: Set up Python
         uses: actions/setup-python@v5
