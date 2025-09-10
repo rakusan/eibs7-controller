@@ -91,6 +91,8 @@ jobs:
       - name: Check working directory permission
         run: |
           ls -la /home/runner/work/eibs7-controller/eibs7-controller
+          id
+          umask
         
       - name: Set up Python
         uses: actions/setup-python@v5
