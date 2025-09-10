@@ -90,9 +90,11 @@ jobs:
 
       - name: Set working directory permission
         run: |
-          chmod 1775 /home/runner/work/eibs7-controller/eibs7-controller/.git
-          sudo chown 1000 /home/runner/work/eibs7-controller/eibs7-controller/.git
-          ls -la /home/runner/work/eibs7-controller/eibs7-controller
+          chmod 0777 /home/runner/work/eibs7-controller/eibs7-controller/.git
+          ls -la /home/runner/work/eibs7-controller/eibs7-controller/.git
+          #rm -f /home/runner/work/eibs7-controller/eibs7-controller/.git/index.lock
+          #chmod 1775 /home/runner/work/eibs7-controller/eibs7-controller/.git
+          #sudo chown 1000 /home/runner/work/eibs7-controller/eibs7-controller/.git
         
       - name: Set up Python
         uses: actions/setup-python@v5
