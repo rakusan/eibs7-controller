@@ -35,7 +35,7 @@ func TestIsChargingTime(t *testing.T) {
 
 	// Test invalid time format
 	t.Run("InvalidTimeFormat", func(t *testing.T) {
-		result, err := isChargingTime("invalid", "15:00")
+               result, err := isChargingTime(time.Now(), "invalid", "15:00")
 		assert.Error(t, err)
 		assert.False(t, result, "Should return false and error for invalid time format")
 	})
@@ -70,7 +70,7 @@ func TestIsChargingTime(t *testing.T) {
 	t.Run("LogicTest", func(t *testing.T) {
 		// Since we can't control the actual time in tests, let's just make sure
 		// the function doesn't panic and handles valid inputs correctly
-		_, err := isChargingTime("09:00", "15:00")
+               _, err := isChargingTime(time.Now(), "09:00", "15:00")
 		assert.NoError(t, err)
 		// We can't assert the exact result since it depends on current time,
 		// but we can ensure no error occurs and function executes properly

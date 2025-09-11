@@ -310,8 +310,8 @@ func getPropertyName(deoj echonetlite.EOJ, epc byte) string {
 }
 
 // isChargingTime は、指定時刻が設定された充電時間帯内にあるかどうかを判定します。
-func isChargingTime(startTimeStr, endTimeStr string) (bool, error) {
-	return isChargingTimeWithTime(startTimeStr, endTimeStr, time.Now())
+func isChargingTime(now time.Time, startTimeStr, endTimeStr string) (bool, error) {
+       return isChargingTimeWithTime(startTimeStr, endTimeStr, now)
 }
 
 // isChargingTimeWithTime は、指定時刻が設定された充電時間帯内にあるかどうかを判定します。
@@ -428,7 +428,7 @@ func main() {
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
-		isChargingTimePeriod, err := isChargingTime(cfg.ChargeStartTime, cfg.ChargeEndTime)
+               isChargingTimePeriod, err := isChargingTime(time.Now(), cfg.ChargeStartTime, cfg.ChargeEndTime)
 		if err != nil {
 			log.Printf("充電時間帯の判定に失敗しました: %v", err)
 		} else {
