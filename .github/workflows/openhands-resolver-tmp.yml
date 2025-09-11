@@ -88,14 +88,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set working directory permission
-        run: |
-          chmod 0777 /home/runner/work/eibs7-controller/eibs7-controller/.git
-          ls -la /home/runner/work/eibs7-controller/eibs7-controller/.git
-          #rm -f /home/runner/work/eibs7-controller/eibs7-controller/.git/index.lock
-          #chmod 1775 /home/runner/work/eibs7-controller/eibs7-controller/.git
-          #sudo chown 1000 /home/runner/work/eibs7-controller/eibs7-controller/.git
-        
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -110,7 +102,8 @@ jobs:
           OPENHANDS_VERSION=$(head -n 1 openhands_versions.txt | awk '{print $2}' | tr -d '()')
 
           # Create a new requirements.txt locally within the workflow, ensuring no reference to the repo's file
-          echo "openhands-ai==${OPENHANDS_VERSION}" > /tmp/requirements.txt
+          #echo "openhands-ai==${OPENHANDS_VERSION}" > /tmp/requirements.txt
+          echo "openhands-ai==0.54.0" > /tmp/requirements.txt
           cat /tmp/requirements.txt
 
       - name: Cache pip dependencies
