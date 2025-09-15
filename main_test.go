@@ -3,6 +3,7 @@ package main
 import (
     "os"
     "testing"
+    "time"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -30,13 +31,13 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestIsChargingTime(t *testing.T) {
     // simple within same day
-    ok, err := isChargingTime("09:00", "17:00")
+    ok, err := isChargingTime("09:00", "17:00", time.Now())
     if err != nil { t.Fatalf("error: %v", err) }
     // depends on current time; just ensure no error and bool returned
     _ = ok
 
     // crossing midnight
-    ok2, err := isChargingTime("23:00", "02:00")
+    ok2, err := isChargingTime("23:00", "02:00", time.Now())
     if err != nil { t.Fatalf("error crossing: %v", err) }
     _ = ok2
 }
