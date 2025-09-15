@@ -30,14 +30,38 @@ func TestLoadConfigDefaults(t *testing.T) {
 }
 
 func TestIsChargingTime(t *testing.T) {
-    // simple within same day
-    ok, err := isChargingTime("09:00", "17:00", time.Now())
+    // simple within same day - expect true between 09:00 and 17:00 at 12:00
+    fixedNow := time.Date(2025, time.September, 15, 12, 0, 0, 0, time.UTC)
+    ok, err := isChargingTime("09:00", "17:00", fixedNow)
     if err != nil { t.Fatalf("error: %v", err) }
-    // depends on current time; just ensure no error and bool returned
-    _ = ok
+    if !ok {
+        t.Errorf("expected charging time within range to be true")
+    }
 
-    // crossing midnight
-    ok2, err := isChargingTime("23:00", "02:00", time.Now())
+    // crossing midnight - expect true at 01:30 between 23:00 and 02:00
+    fixedNow2 := time.Date(2025, time.September, 15, 1, 30, 0, 0, time.UTC)
+    ok2, err := isChargingTime("23:00", "02:00", fixedNow2)
     if err != nil { t.Fatalf("error crossing: %v", err) }
-    _ = ok2
+    if !ok2 {
+        t.Errorf("expected charging time across midnight to be true")
+    }
 }
+
+func TestIsChargingTimeFalse(t *testing.T) {
+    // time outside range should return false
+    fixedNow := time.Date(2025, time.September, 15, 8, 0, 0, 0, time.UTC)
+    ok, err := isChargingTime("09:00", "17:00", fixedNow)
+    if err != nil { t.Fatalf("error: %v", err) }
+    if ok {
+        t.Errorf("expected charging time outside range to be false")
+    }
+
+    // crossing midnight false case
+    fixedNow2 := time.Date(2025, time.September, 15, 3, 0, 0, 0, time.UTC)
+    ok2, err := isChargingTime("23:00", "02:00", fixedNow2)
+    if err != nil { t.Fatalf("error crossing false: %v", err) }
+    if ok2 {
+        t.Errorf("expected charging time outside midnight range to be false")
+    }
+}
+
