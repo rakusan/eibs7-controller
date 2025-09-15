@@ -1,8 +1,10 @@
 package main
 
 import (
+    "fmt"
     "os"
     "testing"
+    "time"
 )
 
 func TestLoadConfigDefaultsAndValidation(t *testing.T) {
@@ -39,16 +41,27 @@ func TestLoadConfigMissingTargetIP(t *testing.T) {
 }
 
 func TestIsChargingTime(t *testing.T) {
+    // Helper to create a time at given hour:minute on arbitrary date
+    makeNow := func(h, m int) time.Time {
+        t0, _ := time.Parse("2006-01-02 15:04", fmt.Sprintf("2025-01-01 %02d:%02d", h, m))
+        return t0
+    }
     // simple same-day interval where now is mocked via system time – we cannot change time.Now easily, so test logic with known times.
     // We'll test the parsing and boundary logic using fixed strings that include wrap-around.
     // For non-wrapping case
-    ok, err := isChargingTime("00:00", "23:59")
+    now := makeNow(12, 0)
+    ok, err := isChargingTime(now, "00:00", "23:59")
     if err != nil || !ok {
         t.Fatalf("expected always true, got %v, err=%v", ok, err)
     }
     // Wrapping interval where now may be outside; we just ensure no error and boolean returned.
-    _, err = isChargingTime("23:00", "02:00")
-    if err != nil {
-        t.Fatalf("wrap interval parse error: %v", err)
+    now2 := makeNow(3,0)
+    ok2, err2 := isChargingTime(now2, "23:00", "02:00")
+    if err2 != nil {
+        t.Fatalf("wrap interval parse error: %v", err2)
     }
+    if ok2 {
+        t.Fatalf("expected false for outside wrap interval, got true")
+    }
+
 }
