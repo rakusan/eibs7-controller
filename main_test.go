@@ -50,7 +50,7 @@ func TestIsChargingTime(t *testing.T) {
     // We'll test the parsing and boundary logic using fixed strings that include wrap-around.
     // For non-wrapping case
     now := makeNow(12, 0)
-    ok, err := isChargingTime(now, "00:00", "23:59")
+    ok, err := isChargingTime(now, "09:00", "15:00")
     if err != nil || !ok {
         t.Fatalf("expected always true, got %v, err=%v", ok, err)
     }
