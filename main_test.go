@@ -51,8 +51,11 @@ func TestIsChargingTime(t *testing.T) {
     // For non-wrapping case
     now := makeNow(12, 0)
     ok, err := isChargingTime(now, "09:00", "15:00")
-    if err != nil || !ok {
-        t.Fatalf("expected always true, got %v, err=%v", ok, err)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if !ok {
+        t.Fatalf("expected true for non-wrapping interval, got false")
     }
     // Wrapping interval where now may be outside; we just ensure no error and boolean returned.
     now2 := makeNow(3,0)
