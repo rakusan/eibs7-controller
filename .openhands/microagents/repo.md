@@ -27,4 +27,6 @@ This repository provides an unofficial Go implementation of a controller for the
 - `go.mod`, `go.sum` – Go module definitions.
 
 # Development Guidelines
-Any usage of `apt-get` for installing packages is prefixed with `sudo`. It can be used in scripts or commands where elevated privileges are required. Example: `sudo apt-get update && sudo apt-get install -y <package>`
+
+- If you modify a code and there are comments corresponding to the code modified, please also modify the comments accordingly.
+- Any usage of `apt-get` for installing packages is prefixed with `sudo`. It can be used in scripts or commands where elevated privileges are required. Example: `sudo apt-get update && sudo apt-get install -y <package>`
