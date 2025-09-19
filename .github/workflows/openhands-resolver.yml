@@ -17,9 +17,6 @@ permissions:
   pull-requests: write
   issues: write
 
-env:
-  LLM_NATIVE_TOOL_CALLING: "true"
-
 jobs:
   call-openhands-resolver:
     uses: All-Hands-AI/OpenHands/.github/workflows/openhands-resolver.yml@main
