@@ -348,42 +348,45 @@ func isChargingTime(now time.Time, startTimeStr, endTimeStr string) (bool, error
 }
 
 // isChargingNow determines if now is within a charging period, considering default and specific periods.
-func isChargingNow(cfg *Config, now time.Time) (bool, error) {
-    // First, check specific periods in order; later entries override earlier ones.
+// getApplicableChargePeriod returns the start and end time strings for the charging period that applies now.
+func getApplicableChargePeriod(cfg *Config, now time.Time) (string, string, error) {
+    // Check specific periods in reverse order; later entries override earlier ones.
     for i := len(cfg.ChargeTimes) - 1; i >= 0; i-- {
         ct := cfg.ChargeTimes[i]
         if len(ct) != 4 {
-            continue // ignore malformed entry
+            continue
         }
-        startTimeStr, endTimeStr, startDateStr, endDateStr := ct[0], ct[1], ct[2], ct[3]
-        // parse dates M/D (no year)
+        startStr, endStr, startDateStr, endDateStr := ct[0], ct[1], ct[2], ct[3]
         layout := "1/2"
         startDate, err1 := time.Parse(layout, startDateStr)
         endDate, err2 := time.Parse(layout, endDateStr)
         if err1 != nil || err2 != nil {
             continue
         }
-        // construct full dates with current year
         yr := now.Year()
         startDt := time.Date(yr, startDate.Month(), startDate.Day(), 0, 0, 0, 0, now.Location())
         endDt := time.Date(yr, endDate.Month(), endDate.Day(), 23, 59, 59, 0, now.Location())
-        // handle wrap across year
         if endDt.Before(startDt) {
-            // period spans year end; treat as two segments
             if now.After(startDt) || now.Before(endDt) {
-                // within range, check time of day
-                ok, err := isChargingTime(now, startTimeStr, endTimeStr)
-                return ok, err
+                return startStr, endStr, nil
             }
         } else {
             if now.After(startDt) && now.Before(endDt) {
-                ok, err := isChargingTime(now, startTimeStr, endTimeStr)
-                return ok, err
+                return startStr, endStr, nil
             }
         }
     }
-    // fallback to default period
-    return isChargingTime(now, cfg.ChargeStartTime, cfg.ChargeEndTime)
+    // default period
+    return cfg.ChargeStartTime, cfg.ChargeEndTime, nil
+}
+
+// isChargingNow determines if now is within a charging period, considering default and specific periods.
+func isChargingNow(cfg *Config, now time.Time) (bool, error) {
+    startStr, endStr, err := getApplicableChargePeriod(cfg, now)
+    if err != nil {
+        return false, err
+    }
+    return isChargingTime(now, startStr, endStr)
 }
 
 
@@ -644,7 +647,13 @@ func main() {
 				// 残り時間 (分) の計算
 				const timeFormat = "15:04"
 				currentTime, _ := time.Parse(timeFormat, now.Format(timeFormat))
-				chargeEndTime, _ := time.Parse(timeFormat, cfg.ChargeEndTime)
+                               // Use applicable charge end time based on specific periods if any
+                       endStr, _, err := getApplicableChargePeriod(cfg, now)
+                       if err != nil {
+                               log.Printf("[制御] 充電時間帯取得エラー: %v", err)
+                               continue
+                       }
+                       chargeEndTime, _ := time.Parse(timeFormat, endStr)
 
 				remainingMinutes := chargeEndTime.Sub(currentTime).Minutes()
 				if remainingMinutes <= 0 {
