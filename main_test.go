@@ -68,3 +68,29 @@ func TestIsChargingTime(t *testing.T) {
     }
 
 }
+func TestIsChargingNowWithSpecificPeriods(t *testing.T) {
+    cfg := &Config{
+        ChargeStartTime: "09:00",
+        ChargeEndTime:   "15:00",
+        ChargeTimes: [][]string{{"23:00", "02:00", "9/1", "4/30"}},
+    }
+    // date within specific period (Oct 1) at 23:30 should be true
+    now := time.Date(2025, time.October, 1, 23, 30, 0, 0, time.UTC)
+    ok, err := isChargingNow(cfg, now)
+    if err != nil {
+        t.Fatalf("error: %v", err)
+    }
+    if !ok {
+        t.Errorf("expected charging period true for specific period")
+    }
+    // date outside specific period (May 1) at 10:00 should use default and be true
+    now2 := time.Date(2025, time.May, 1, 10, 0, 0, 0, time.UTC)
+    ok2, err2 := isChargingNow(cfg, now2)
+    if err2 != nil {
+        t.Fatalf("error: %v", err2)
+    }
+    if !ok2 {
+        t.Errorf("expected default charging period true")
+    }
+}
+
