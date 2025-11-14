@@ -31,6 +31,9 @@ type Config struct {
 	ChargeStartTime                  string `toml:"charge_start_time"`
 	ChargeEndTime                    string `toml:"charge_end_time"`
 	ChargePowerUpdateIntervalMinutes int    `toml:"charge_power_update_interval_minutes"`
+               // Default charging period (HH:MM format). Used when no specific period matches the current date.
+               // Optional list of specific charging periods. Each element is an array: [startTime, endTime, startDate, endDate]
+               ChargeTimes                      [][]string `toml:"charge_times"`
 	AutoModeThresholdWatts           int    `toml:"auto_mode_threshold_watts"`
 	ChargeModeThresholdWatts         int    `toml:"charge_mode_threshold_watts"`
 	ModeChangeInhibitMinutes         int    `toml:"mode_change_inhibit_minutes"`
@@ -337,9 +340,55 @@ func isChargingTime(now time.Time, startTimeStr, endTimeStr string) (bool, error
 	} else {
 		// 例: 09:00 - 15:00 の場合
 		// (現在時刻 >= 開始時刻) AND (現在時刻 < 終了時刻)
+
 		return !currentTime.Before(startTime) && currentTime.Before(endTime), nil
+
 	}
+
 }
+
+// isChargingNow determines if now is within a charging period, considering default and specific periods.
+// getApplicableChargePeriod returns the start and end time strings for the charging period that applies now.
+func getApplicableChargePeriod(cfg *Config, now time.Time) (string, string, error) {
+    // Check specific periods in reverse order; later entries override earlier ones.
+    for i := len(cfg.ChargeTimes) - 1; i >= 0; i-- {
+        ct := cfg.ChargeTimes[i]
+        if len(ct) != 4 {
+            continue
+        }
+        startStr, endStr, startDateStr, endDateStr := ct[0], ct[1], ct[2], ct[3]
+        layout := "1/2"
+        startDate, err1 := time.Parse(layout, startDateStr)
+        endDate, err2 := time.Parse(layout, endDateStr)
+        if err1 != nil || err2 != nil {
+            continue
+        }
+        yr := now.Year()
+        startDt := time.Date(yr, startDate.Month(), startDate.Day(), 0, 0, 0, 0, now.Location())
+        endDt := time.Date(yr, endDate.Month(), endDate.Day(), 23, 59, 59, 0, now.Location())
+        if endDt.Before(startDt) {
+            if now.After(startDt) || now.Before(endDt) {
+                return startStr, endStr, nil
+            }
+        } else {
+            if now.After(startDt) && now.Before(endDt) {
+                return startStr, endStr, nil
+            }
+        }
+    }
+    // default period
+    return cfg.ChargeStartTime, cfg.ChargeEndTime, nil
+}
+
+// isChargingNow determines if now is within a charging period, considering default and specific periods.
+func isChargingNow(cfg *Config, now time.Time) (bool, error) {
+    startStr, endStr, err := getApplicableChargePeriod(cfg, now)
+    if err != nil {
+        return false, err
+    }
+    return isChargingTime(now, startStr, endStr)
+}
+
 
 func main() {
 	// コマンドライン引数の定義
@@ -422,7 +471,8 @@ func main() {
 		log.Println("--------------------------------------------------")
 		log.Println("監視サイクル開始")
 
-               isChargingTimePeriod, err := isChargingTime(time.Now(), cfg.ChargeStartTime, cfg.ChargeEndTime)
+               // Determine charging time based on default or specific periods
+               isChargingTimePeriod, err := isChargingNow(cfg, time.Now())
 		if err != nil {
 			log.Printf("充電時間帯の判定に失敗しました: %v", err)
 		} else {
@@ -597,7 +647,13 @@ func main() {
 				// 残り時間 (分) の計算
 				const timeFormat = "15:04"
 				currentTime, _ := time.Parse(timeFormat, now.Format(timeFormat))
-				chargeEndTime, _ := time.Parse(timeFormat, cfg.ChargeEndTime)
+                               // Use applicable charge end time based on specific periods if any
+                       endStr, _, err := getApplicableChargePeriod(cfg, now)
+                       if err != nil {
+                               log.Printf("[制御] 充電時間帯取得エラー: %v", err)
+                               continue
+                       }
+                       chargeEndTime, _ := time.Parse(timeFormat, endStr)
 
 				remainingMinutes := chargeEndTime.Sub(currentTime).Minutes()
 				if remainingMinutes <= 0 {
